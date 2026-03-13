@@ -31,21 +31,24 @@ function App() {
   useEffect(() => {
     fetch(`${API_URL}/api/data`)
       .then((res) => {
-        if (!res.ok) throw new Error('Network response was not ok');
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         return res.json();
       })
-      .then((data) => {
-        setData(data);
+      .then((responseData) => {
+        console.log('API Response:', responseData);
+        setData(responseData);
         setLoading(false);
       })
       .catch((err) => {
-        setError(err.message);
+        console.error('API Error:', err);
+        setError(`${err.message} - API URL: ${API_URL}`);
         setLoading(false);
       });
   }, []);
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 48 }}>Loading...</div>;
+  if (loading) return <div style={{ textAlign: 'center', padding: 48 }}>Loading from {API_URL}...</div>;
   if (error) return <div style={{ textAlign: 'center', padding: 48, color: 'red' }}>Error: {error}</div>;
+  if (!data) return <div style={{ textAlign: 'center', padding: 48, color: 'orange' }}>No data received from API</div>;
 
   const tabs = [
     { id: 'cards', label: '📋 All Cards' },
