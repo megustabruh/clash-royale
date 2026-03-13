@@ -87,6 +87,46 @@ function App() {
 }
 
 function AllCardsTable({ cards }) {
+  const [sortCol, setSortCol] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+
+  const handleSort = (col) => {
+    if (sortCol === col) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+  };
+
+  const sortedCards = [...cards].sort((a, b) => {
+    let aVal, bVal;
+    switch (sortCol) {
+      case 'name': aVal = a.name.toLowerCase(); bVal = b.name.toLowerCase(); break;
+      case 'level': aVal = a.level; bVal = b.level; break;
+      case 'rarity': 
+        const rarityOrder = { CHAMPION: 5, LEGENDARY: 4, EPIC: 3, RARE: 2, COMMON: 1 };
+        aVal = rarityOrder[a.rarity] || 0; bVal = rarityOrder[b.rarity] || 0; break;
+      case 'elixir': aVal = a.elixirs; bVal = b.elixirs; break;
+      case 'achievements': aVal = a.achievement_lefts; bVal = b.achievement_lefts; break;
+      case 'type': aVal = a.cr_card_type || ''; bVal = b.cr_card_type || ''; break;
+      case 'evo': aVal = a.has_evolution ? 1 : 0; bVal = b.has_evolution ? 1 : 0; break;
+      case 'priority': 
+        aVal = a.is_high_priority ? 2 : a.is_secondary_priority ? 1 : 0;
+        bVal = b.is_high_priority ? 2 : b.is_secondary_priority ? 1 : 0; break;
+      default: aVal = 0; bVal = 0;
+    }
+    if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const SortHeader = ({ col, label }) => (
+    <th style={{ ...styles.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => handleSort(col)}>
+      {label} {sortCol === col ? (sortDir === 'asc' ? '▲' : '▼') : ''}
+    </th>
+  );
+
   return (
     <div style={styles.section}>
       <h2>All Cards ({cards.length})</h2>
@@ -95,18 +135,18 @@ function AllCardsTable({ cards }) {
           <thead>
             <tr>
               <th style={styles.th}>#</th>
-              <th style={styles.th}>Name</th>
-              <th style={styles.th}>Level</th>
-              <th style={styles.th}>Rarity</th>
-              <th style={styles.th}>Elixir</th>
-              <th style={styles.th}>Achievements</th>
-              <th style={styles.th}>Type</th>
-              <th style={styles.th}>Evo</th>
-              <th style={styles.th}>Priority</th>
+              <SortHeader col="name" label="Name" />
+              <SortHeader col="level" label="Level" />
+              <SortHeader col="rarity" label="Rarity" />
+              <SortHeader col="elixir" label="Elixir" />
+              <SortHeader col="achievements" label="Achievements" />
+              <SortHeader col="type" label="Type" />
+              <SortHeader col="evo" label="Evo" />
+              <SortHeader col="priority" label="Priority" />
             </tr>
           </thead>
           <tbody>
-            {cards.map((card, i) => (
+            {sortedCards.map((card, i) => (
               <tr key={card.name} style={{ background: i % 2 === 0 ? '#fff' : '#f9f9f9' }}>
                 <td style={styles.td}>{i + 1}</td>
                 <td style={styles.td}><strong>{card.name}</strong></td>
