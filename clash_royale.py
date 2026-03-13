@@ -1074,4 +1074,4 @@ def get_clash_royale_data(deck_type: int = 1):
 
 # Optional: run with uvicorn if executed directly
 if __name__ == "__main__":
-    uvicorn.run("clash_royale:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("clash_royale:app", host="0.0.0.0", port=8002, reload=True)
