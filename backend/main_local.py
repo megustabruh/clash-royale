@@ -14,7 +14,7 @@ from clash_royale import (
 # Local Development API Token
 # You can set CLASH_API_TOKEN environment variable or replace this with your token
 # Get your token from: https://developer.clashroyale.com
-API_TOKEN = os.environ.get("CLASH_API_TOKEN", "YOUR_LOCAL_API_TOKEN_HERE")
+API_TOKEN = os.environ.get("CLASH_API_TOKEN", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6ImFhYmMyNmI0LWRjNTQtNDc1ZC05MjQwLTMzMmMwYTc3Mzg5NiIsImlhdCI6MTc3MzQyMTY4MCwic3ViIjoiZGV2ZWxvcGVyL2VhYjQ5OTQ3LWNiYjMtZWJlZC1mNzViLTgzNGFlODliMGFmZiIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyI2NS4yLjgyLjYwIl0sInR5cGUiOiJjbGllbnQifV19.Doj4jiELAtrA43rs_AdjkiG8H7vp2BN28u7arDzCjuqVZx6gGHiBvL9OZd7Lh9ZX06MtzsNwnDVpt-73hN2VGQ")
 
 app = FastAPI(
     title="Clash Royale Backend API",

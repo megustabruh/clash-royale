@@ -16,7 +16,8 @@ API_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTF
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://ved-clash.s3-website.ap-south-1.amazonaws.com"],
+    # allow_origins=["http://ved-clash.s3-website.ap-south-1.amazonaws.com"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
