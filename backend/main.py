@@ -356,7 +356,10 @@ def get_clan_war_custom(selector):
 
     def meets_level_req(card):
         min_lvl = 13 if card.elixirs <= 2 else 14
-        effective_lvl = 14 if card.name in selector.config.boosted_cards else card.level
+        effective_lvl = 16 if card.name in selector.config.boosted_cards else card.level
+        if card.name in MUST_USE_CARDS:
+            # Must-use cards can be considered level 15, but keep true 16+ levels unchanged.
+            effective_lvl = max(effective_lvl, 15)
         return effective_lvl >= min_lvl
 
     eligible_cards = [c for c in selector.cards if meets_level_req(c)]

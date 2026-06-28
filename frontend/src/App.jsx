@@ -213,9 +213,15 @@ function analyzeAllData(rawCards, config) {
 }
 
 function buildClanWarCustomDecks(cards, config) {
+  const mustUseSet = new Set(config.mustUseCards || []);
+
   const meetsLevelReq = (card) => {
     const minLvl = card.elixirs <= 2 ? 13 : 14;
-    const effectiveLvl = config.boostedCards.includes(card.name) ? 14 : card.level;
+    let effectiveLvl = config.boostedCards.includes(card.name) ? 16 : card.level;
+    if (mustUseSet.has(card.name)) {
+      // Must-use cards can be considered level 15, while real 16+ levels remain as-is.
+      effectiveLvl = Math.max(effectiveLvl, 15);
+    }
     return effectiveLvl >= minLvl;
   };
 
