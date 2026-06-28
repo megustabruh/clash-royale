@@ -93,7 +93,7 @@ class Config:
     """Configuration settings for deck selection."""
     token: str
     player_tag: str = "U8PVCPV98"
-    boosted_cards: Tuple[str, ...] = ("megaminion", "zap")
+    boosted_cards: Tuple[str, ...] = ("megaminion", "zap", "knight", "giant")
     heroes: Tuple[str, ...] = ("knight", "giant")  # Currently owned heroes
     excluded_cards: Tuple[str, ...] = ()
     minimum_level: int = 13
@@ -509,17 +509,8 @@ class DeckSelector:
         selected: List[Card] = []
         used_types: Set[CRCardType] = set()
 
-        # Phase 0: Prioritize boosted cards first (if they exist in available cards)
-        boosted_in_available = [c for c in cards if c.name in self.config.boosted_cards]
-        for card in boosted_in_available[:choices]:  # Limit to choices to not over-select
-            selected.append(card)
-            cards.remove(card)
-            if card.clash_royale_card_type:
-                used_types.add(card.clash_royale_card_type)
-            self._log(f"Added boosted card: {card.name}")
-
         # Phase 1: Select diverse card types
-        for _ in range(choices - len(selected)):  # Adjust for already selected boosted cards
+        for _ in range(choices):
             if not cards:
                 break
 
@@ -1025,7 +1016,7 @@ def main() -> None:
     """Main entry point."""
     config = Config(
         token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjA4OTRjN2FmLWUwZmYtNDM0Yy04ZGVkLTU3Yjg0Yjk2ZjNkZiIsImlhdCI6MTc3ODQyNDIzNSwic3ViIjoiZGV2ZWxvcGVyL2VhYjQ5OTQ3LWNiYjMtZWJlZC1mNzViLTgzNGFlODliMGFmZiIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNS4yMDYuMjkuMTYiXSwidHlwZSI6ImNsaWVudCJ9XX0.FOBrdxHptzi0ol5a3ljawrykFj0ZdEhSJcdhTXJct7XslIRn6Mksi8Ll0032kRuPsenHYAdSCqGnsoKQ4WRRqA",
-        boosted_cards=("megaminion", "zap"),
+        boosted_cards=("megaminion", "zap", "knight", "giant"),
     )
 
     selector = DeckSelector(config)
@@ -1055,7 +1046,7 @@ def get_clash_royale_data(deck_type: int = 1):
     """Fetch all Clash Royale data and deck selection as JSON."""
     config = Config(
         token="eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjA4OTRjN2FmLWUwZmYtNDM0Yy04ZGVkLTU3Yjg0Yjk2ZjNkZiIsImlhdCI6MTc3ODQyNDIzNSwic3ViIjoiZGV2ZWxvcGVyL2VhYjQ5OTQ3LWNiYjMtZWJlZC1mNzViLTgzNGFlODliMGFmZiIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNS4yMDYuMjkuMTYiXSwidHlwZSI6ImNsaWVudCJ9XX0.FOBrdxHptzi0ol5a3ljawrykFj0ZdEhSJcdhTXJct7XslIRn6Mksi8Ll0032kRuPsenHYAdSCqGnsoKQ4WRRqA",
-        boosted_cards=("megaminion", "zap"),
+        boosted_cards=("megaminion", "zap", "knight", "giant"),
     )
     selector = DeckSelector(config)
     selector.load_cards()

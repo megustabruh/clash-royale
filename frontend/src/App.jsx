@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Default configuration values (matching backend)
 const DEFAULT_CONFIG = {
-  boostedCards: ['megaminion', 'zap'],
+  boostedCards: ['megaminion', 'zap', 'knight', 'giant'],
   excludedCards: ['giantbuffer', 'mergemaiden'],
   minimumLevel: 13,
   maxElixir: 33,
@@ -177,15 +177,10 @@ function analyzeAllData(rawCards, config) {
     recommendationsByRarity[rarity] = recommendationsByRarity[rarity].slice(0, 10);
   }
 
-  // Step 6: Normal deck selection (top 8 cards by achievements, prioritizing boosted cards)
+  // Step 6: Normal deck selection (top 8 cards by achievements)
   const deckSortedCards = [...cards]
     .filter(c => c.temp_level >= config.minimumLevel)
-    .sort((a, b) => {
-      // Boosted cards come first
-      if (a.is_boosted !== b.is_boosted) return a.is_boosted ? -1 : 1;
-      // Then sort by achievements
-      return b.achievement_lefts - a.achievement_lefts;
-    });
+    .sort((a, b) => b.achievement_lefts - a.achievement_lefts);
   const normalDeck = deckSortedCards.slice(0, 8).map(c => c.name);
 
   // Step 7: Clan war decks (4 decks, non-overlapping)

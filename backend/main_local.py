@@ -39,7 +39,7 @@ app.add_middleware(
 def get_config():
     return Config(
         token=API_TOKEN,
-        boosted_cards=("megaminion", "zap"),
+        boosted_cards=("megaminion", "zap", "knight", "giant"),
         king_level=16
     )
 

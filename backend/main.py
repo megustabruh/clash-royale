@@ -32,7 +32,7 @@ SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "user_settings.json")
 
 # Default settings configuration
 DEFAULT_SETTINGS = {
-    "boostedCards": ["megaminion", "zap"],
+    "boostedCards": ["megaminion", "zap", "knight", "giant"],
     "excludedCards": ["giantbuffer", "mergemaiden"],
     "minimumLevel": 13,
     "maxElixir": 33,
