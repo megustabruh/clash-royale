@@ -860,7 +860,7 @@ class DeckSelector:
             
             # Filter cards by level requirement
             def meets_level_req(card: Card) -> bool:
-                min_lvl = 13 if card.elixirs <= 2 else 14
+                min_lvl = self.min_lvl if card.elixirs <= 2 else card.level
                 # Consider boosted cards at King Tower level
                 effective_lvl = self.player_king_level if card.name in self.config.boosted_cards else card.level
                 return effective_lvl >= min_lvl
