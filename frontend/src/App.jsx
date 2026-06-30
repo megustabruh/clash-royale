@@ -281,14 +281,23 @@ function analyzeAllData(rawCards, config) {
     .sort(priorityComparator);
   const normalDeck = deckSortedCards.slice(0, 8).map(c => c.name);
 
-  // Step 7: Clan war decks (4 decks, non-overlapping)
-  const clanWarDecks = [];
+  // Step 7: Clan war decks (4 decks, non-overlapping, round-robin distribution)
+  const clanWarDecks = [[], [], [], []];
   const usedForClanWar = new Set();
-  for (let i = 0; i < 4; i++) {
-    const availableCards = deckSortedCards.filter(c => !usedForClanWar.has(c.name));
-    const deck = availableCards.slice(0, 8);
-    clanWarDecks.push(deck);
-    deck.forEach(c => usedForClanWar.add(c.name));
+  let deckIndex = 0;
+  for (const card of deckSortedCards) {
+    if (usedForClanWar.has(card.name)) continue;
+    // Find next deck that isn't full
+    let attempts = 0;
+    while (clanWarDecks[deckIndex].length >= 8 && attempts < 4) {
+      deckIndex = (deckIndex + 1) % 4;
+      attempts++;
+    }
+    if (clanWarDecks[deckIndex].length >= 8) break; // All decks full
+    
+    clanWarDecks[deckIndex].push(card);
+    usedForClanWar.add(card.name);
+    deckIndex = (deckIndex + 1) % 4; // Move to next deck
   }
 
   // Step 8: Clan war custom (with must-use cards and constraints)
