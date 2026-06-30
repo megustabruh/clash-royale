@@ -12,7 +12,98 @@ const DEFAULT_CONFIG = {
   highPriorityCards: ['musketeer', 'megaminion', 'fireball', 'zap', 'miner', 'cannon', 'thelog', 'balloon', 'knight', 'wallbreakers'],
   secondaryPriorityCards: ['hogrider', 'battleram', 'royalhogs', 'suspiciousbush', 'ramrider'],
   mustUseCards: ['hogrider', 'battleram', 'royalhogs', 'suspiciousbush', 'ramrider'],
+  sortPriority: 'achievements_rarity_level', // Options: achievements_rarity_level, level_achievements_rarity, achievements_rarity, custom
+  ownedHeroes: ['archerqueen', 'goldenknight', 'skeletonking', 'mightyminer', 'monk', 'littleprince'], // Champion cards you own
+  customSortOrder: [
+    { field: 'achievement_lefts', direction: 'desc', enabled: true },
+    { field: 'rarity', direction: 'desc', enabled: true },
+    { field: 'level', direction: 'desc', enabled: true },
+    { field: 'has_evolution', direction: 'desc', enabled: true },
+    { field: 'is_hero', direction: 'desc', enabled: true },
+    { field: 'elixirs', direction: 'desc', enabled: true },
+  ],
 };
+
+// Available sort criteria for custom sorting
+const SORT_CRITERIA = [
+  { field: 'achievement_lefts', label: 'Achievements Left' },
+  { field: 'rarity', label: 'Rarity' },
+  { field: 'level', label: 'Level' },
+  { field: 'has_evolution', label: 'Has Evolution' },
+  { field: 'is_hero', label: 'Is Hero (Owned)' },
+  { field: 'elixirs', label: 'Elixir Cost' },
+];
+
+// Sort priority options for the dropdown
+const SORT_PRIORITY_OPTIONS = [
+  { value: 'achievements_rarity_level', label: 'Achievements → Rarity → Level' },
+  { value: 'level_achievements_rarity', label: 'Level → Achievements → Rarity' },
+  { value: 'achievements_rarity', label: 'Achievements → Rarity' },
+  { value: 'custom', label: '⚙️ Custom Order...' },
+];
+
+// Helper to get card value for sorting
+function getCardSortValue(card, field) {
+  const rarityOrder = { CHAMPION: 4, LEGENDARY: 3, EPIC: 2, RARE: 1, COMMON: 0 };
+  switch (field) {
+    case 'level': return card.temp_level || card.level;
+    case 'rarity': return rarityOrder[card.rarity] ?? 0;
+    case 'elixirs': return card.elixirs;
+    case 'has_evolution': return card.has_evolution ? 1 : 0;
+    case 'is_hero': return card.is_hero_owned ? 1 : 0;
+    case 'achievement_lefts': return card.achievement_lefts;
+    default: return 0;
+  }
+}
+
+// Create comparator based on priority (matching backend logic)
+function createPriorityComparator(priority, customSortOrder = []) {
+  const rarityOrder = { CHAMPION: 4, LEGENDARY: 3, EPIC: 2, RARE: 1, COMMON: 0 };
+  
+  return (a, b) => {
+    // For custom sort, use the user-defined order
+    if (priority === 'custom' && customSortOrder && customSortOrder.length > 0) {
+      for (const criterion of customSortOrder) {
+        if (!criterion.enabled) continue;
+        
+        const aVal = getCardSortValue(a, criterion.field);
+        const bVal = getCardSortValue(b, criterion.field);
+        
+        if (aVal !== bVal) {
+          // desc = higher values first, asc = lower values first
+          return criterion.direction === 'desc' ? bVal - aVal : aVal - bVal;
+        }
+      }
+      return 0;
+    }
+
+    // Legacy presets (still no hardcoded evolution priority)
+    let order;
+    if (priority === 'achievements_rarity_level') {
+      order = [
+        [b.achievement_lefts, a.achievement_lefts],
+        [rarityOrder[b.rarity] ?? 0, rarityOrder[a.rarity] ?? 0],
+        [b.temp_level || b.level, a.temp_level || a.level],
+      ];
+    } else if (priority === 'level_achievements_rarity') {
+      order = [
+        [b.temp_level || b.level, a.temp_level || a.level],
+        [b.achievement_lefts, a.achievement_lefts],
+        [rarityOrder[b.rarity] ?? 0, rarityOrder[a.rarity] ?? 0],
+      ];
+    } else { // achievements_rarity
+      order = [
+        [b.achievement_lefts, a.achievement_lefts],
+        [rarityOrder[b.rarity] ?? 0, rarityOrder[a.rarity] ?? 0],
+      ];
+    }
+
+    for (const [bVal, aVal] of order) {
+      if (bVal !== aVal) return bVal - aVal;
+    }
+    return 0;
+  };
+}
 
 // Rarity achievement multipliers (matching backend)
 const RARITY_ACHIEVEMENTS = {
@@ -44,6 +135,7 @@ const styles = {
   deckCard: { display: 'inline-block', padding: '8px 12px', margin: 4, background: '#e3f2fd', borderRadius: 4, border: '1px solid #90caf9' },
   priority: { color: '#d32f2f', fontWeight: 'bold' },
   secondary: { color: '#f57c00', fontWeight: 'bold' },
+  heroOwned: { color: '#9c27b0', fontWeight: 'bold' },
   statBar: { display: 'flex', alignItems: 'center', marginBottom: 8 },
   statLabel: { width: 180, fontWeight: 'bold' },
   statValue: { background: '#4caf50', height: 20, borderRadius: 4, minWidth: 30, textAlign: 'center', color: 'white', fontSize: 12, lineHeight: '20px' },
@@ -80,6 +172,7 @@ function analyzeAllData(rawCards, config) {
 
   // Step 1: Process cards with config
   const kingLevel = config.kingLevel || 16;  // Use King Tower level for boosted cards
+  const ownedHeroesSet = new Set((config.ownedHeroes || []).map(h => h.toLowerCase()));
   const cards = rawCards
     .filter(c => !config.excludedCards.includes(c.name))
     .map(c => ({
@@ -88,6 +181,7 @@ function analyzeAllData(rawCards, config) {
       is_high_priority: config.highPriorityCards.includes(c.name),
       is_secondary_priority: config.secondaryPriorityCards.includes(c.name),
       is_boosted: config.boostedCards.includes(c.name),
+      is_hero_owned: ownedHeroesSet.has(c.name.toLowerCase()),
     }));
 
   const cardMap = Object.fromEntries(cards.map(c => [c.name, c]));
@@ -177,10 +271,14 @@ function analyzeAllData(rawCards, config) {
     recommendationsByRarity[rarity] = recommendationsByRarity[rarity].slice(0, 10);
   }
 
-  // Step 6: Normal deck selection (top 8 cards by achievements)
+  // Step 6: Normal deck selection (sorted by selected priority)
+  const priorityComparator = createPriorityComparator(
+    config.sortPriority || 'achievements_rarity_level',
+    config.customSortOrder || []
+  );
   const deckSortedCards = [...cards]
     .filter(c => c.temp_level >= config.minimumLevel)
-    .sort((a, b) => b.achievement_lefts - a.achievement_lefts);
+    .sort(priorityComparator);
   const normalDeck = deckSortedCards.slice(0, 8).map(c => c.name);
 
   // Step 7: Clan war decks (4 decks, non-overlapping)
@@ -209,6 +307,7 @@ function analyzeAllData(rawCards, config) {
     upgrade_priority: upgradePriority,
     upgrade_by_rarity: upgradeByRarity,
     clan_war_custom: clanWarCustom,
+    sort_priority: config.sortPriority || 'achievements_rarity_level',
   };
 }
 
@@ -225,10 +324,15 @@ function buildClanWarCustomDecks(cards, config) {
     return effectiveLvl >= minLvl;
   };
 
+  const priorityComparator = createPriorityComparator(
+    config.sortPriority || 'achievements_rarity_level',
+    config.customSortOrder || []
+  );
+
   const eligibleCards = cards.filter(meetsLevelReq);
-  const bigSpells = eligibleCards.filter(c => c.cr_card_type === 'BIG_SPELL').sort((a, b) => b.achievement_lefts - a.achievement_lefts);
-  const smallSpells = eligibleCards.filter(c => c.cr_card_type === 'SMALL_SPELL').sort((a, b) => b.achievement_lefts - a.achievement_lefts);
-  const towerDefenders = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DEFENDER').sort((a, b) => b.achievement_lefts - a.achievement_lefts);
+  const bigSpells = eligibleCards.filter(c => c.cr_card_type === 'BIG_SPELL').sort(priorityComparator);
+  const smallSpells = eligibleCards.filter(c => c.cr_card_type === 'SMALL_SPELL').sort(priorityComparator);
+  const towerDefenders = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DEFENDER').sort(priorityComparator);
   
   const cardMap = Object.fromEntries(cards.map(c => [c.name, c]));
   const mustUseDistribution = [[0], [1], [2], [3, 4]];
@@ -277,7 +381,7 @@ function buildClanWarCustomDecks(cards, config) {
   // Fill remaining slots
   const remaining = eligibleCards
     .filter(c => !usedCards.has(c.name))
-    .sort((a, b) => b.achievement_lefts - a.achievement_lefts);
+    .sort(priorityComparator);
 
   for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
     while (decks[deckIdx].length < 8 && remaining.length > 0) {
@@ -443,6 +547,16 @@ function App() {
           </div>
 
           <div style={styles.settingsRow}>
+            <span style={styles.settingsLabel}>Owned Heroes:</span>
+            <input
+              style={{ ...styles.settingsInput, minWidth: 400 }}
+              value={(config.ownedHeroes || []).join(', ')}
+              onChange={(e) => updateConfig('ownedHeroes', parseCardList(e.target.value))}
+              placeholder="e.g., archerqueen, goldenknight, skeletonking"
+            />
+          </div>
+
+          <div style={styles.settingsRow}>
             <span style={styles.settingsLabel}>High Priority Cards:</span>
             <input
               style={{ ...styles.settingsInput, minWidth: 400 }}
@@ -471,6 +585,116 @@ function App() {
               placeholder="e.g., hogrider, battleram, royalhogs"
             />
           </div>
+
+          <div style={styles.settingsRow}>
+            <span style={styles.settingsLabel}>Sort Priority:</span>
+            <select
+              style={{ ...styles.settingsInput, minWidth: 280, cursor: 'pointer' }}
+              value={config.sortPriority || 'achievements_rarity_level'}
+              onChange={(e) => updateConfig('sortPriority', e.target.value)}
+            >
+              {SORT_PRIORITY_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Custom Sort Order Editor */}
+          {config.sortPriority === 'custom' && (
+            <div style={{ 
+              marginBottom: 16, 
+              padding: 12, 
+              background: '#fff', 
+              borderRadius: 6, 
+              border: '1px solid #ccc' 
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: 8 }}>
+                Custom Sort Order (drag to reorder, toggle to enable/disable):
+              </div>
+              {(config.customSortOrder || DEFAULT_CONFIG.customSortOrder).map((criterion, index) => {
+                const criterionInfo = SORT_CRITERIA.find(c => c.field === criterion.field);
+                return (
+                  <div 
+                    key={criterion.field} 
+                    style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8, 
+                      padding: '6px 8px',
+                      marginBottom: 4,
+                      background: criterion.enabled ? '#e8f5e9' : '#f5f5f5',
+                      borderRadius: 4,
+                      border: '1px solid #ddd',
+                      opacity: criterion.enabled ? 1 : 0.6,
+                    }}
+                  >
+                    <span style={{ width: 20, textAlign: 'center', color: '#666' }}>{index + 1}.</span>
+                    <button
+                      style={{ 
+                        padding: '2px 6px', 
+                        cursor: index === 0 ? 'not-allowed' : 'pointer',
+                        opacity: index === 0 ? 0.3 : 1,
+                        border: '1px solid #ccc',
+                        borderRadius: 3,
+                        background: '#fff',
+                      }}
+                      onClick={() => {
+                        if (index === 0) return;
+                        const newOrder = [...(config.customSortOrder || DEFAULT_CONFIG.customSortOrder)];
+                        [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                        updateConfig('customSortOrder', newOrder);
+                      }}
+                      title="Move Up"
+                    >▲</button>
+                    <button
+                      style={{ 
+                        padding: '2px 6px', 
+                        cursor: index === (config.customSortOrder || DEFAULT_CONFIG.customSortOrder).length - 1 ? 'not-allowed' : 'pointer',
+                        opacity: index === (config.customSortOrder || DEFAULT_CONFIG.customSortOrder).length - 1 ? 0.3 : 1,
+                        border: '1px solid #ccc',
+                        borderRadius: 3,
+                        background: '#fff',
+                      }}
+                      onClick={() => {
+                        const order = config.customSortOrder || DEFAULT_CONFIG.customSortOrder;
+                        if (index === order.length - 1) return;
+                        const newOrder = [...order];
+                        [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                        updateConfig('customSortOrder', newOrder);
+                      }}
+                      title="Move Down"
+                    >▼</button>
+                    <input
+                      type="checkbox"
+                      checked={criterion.enabled}
+                      onChange={() => {
+                        const newOrder = [...(config.customSortOrder || DEFAULT_CONFIG.customSortOrder)];
+                        newOrder[index] = { ...criterion, enabled: !criterion.enabled };
+                        updateConfig('customSortOrder', newOrder);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    <span style={{ flex: 1, fontWeight: 500 }}>{criterionInfo?.label || criterion.field}</span>
+                    <select
+                      value={criterion.direction}
+                      onChange={(e) => {
+                        const newOrder = [...(config.customSortOrder || DEFAULT_CONFIG.customSortOrder)];
+                        newOrder[index] = { ...criterion, direction: e.target.value };
+                        updateConfig('customSortOrder', newOrder);
+                      }}
+                      style={{ padding: '2px 6px', borderRadius: 3, cursor: 'pointer' }}
+                    >
+                      <option value="desc">High → Low</option>
+                      <option value="asc">Low → High</option>
+                    </select>
+                  </div>
+                );
+              })}
+              <p style={{ fontSize: 12, color: '#666', marginTop: 8, marginBottom: 0 }}>
+                Cards are sorted by enabled criteria in order. First match wins.
+              </p>
+            </div>
+          )}
 
           <div style={styles.settingsRow}>
             <span style={styles.settingsLabel}>Minimum Level:</span>
@@ -540,13 +764,13 @@ function App() {
       </div>
 
       {activeTab === 'cards' && <AllCardsTable cards={data.cards} />}
-      {activeTab === 'normal_deck' && <NormalDeck deck={data.normal_deck} cards={data.cards} />}
-      {activeTab === 'clan_war' && <ClanWarDecks decks={data.clan_war_decks} />}
+      {activeTab === 'normal_deck' && <NormalDeck deck={data.normal_deck} cards={data.cards} sortPriority={data.sort_priority} />}
+      {activeTab === 'clan_war' && <ClanWarDecks decks={data.clan_war_decks} sortPriority={data.sort_priority} />}
       {activeTab === 'achievement_stats' && <AchievementStats stats={data.achievement_stats} />}
       {activeTab === 'upgrade_recs' && <UpgradeRecommendations data={data.upgrade_recommendations} />}
       {activeTab === 'upgrade_priority' && <UpgradePriority cards={data.upgrade_priority} />}
       {activeTab === 'upgrade_rarity' && <UpgradeByRarity data={data.upgrade_by_rarity} />}
-      {activeTab === 'clan_war_custom' && <ClanWarCustom decks={data.clan_war_custom} />}
+      {activeTab === 'clan_war_custom' && <ClanWarCustom decks={data.clan_war_custom} sortPriority={data.sort_priority} />}
       {activeTab === 'deck_builder' && <DeckBuilder cards={data.cards} />}
     </div>
   );
@@ -587,6 +811,9 @@ function AllCardsTable({ cards }) {
       case 'priority': 
         aVal = a.is_high_priority ? 2 : a.is_secondary_priority ? 1 : 0;
         bVal = b.is_high_priority ? 2 : b.is_secondary_priority ? 1 : 0; break;
+      case 'hero':
+        aVal = a.is_hero_owned ? 1 : 0;
+        bVal = b.is_hero_owned ? 1 : 0; break;
       default: aVal = 0; bVal = 0;
     }
     if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
@@ -615,6 +842,7 @@ function AllCardsTable({ cards }) {
               {renderSortHeader('achievements', 'Achievements')}
               {renderSortHeader('type', 'Type')}
               {renderSortHeader('evo', 'Evo')}
+              {renderSortHeader('hero', 'Hero')}
               {renderSortHeader('priority', 'Priority')}
             </tr>
           </thead>
@@ -630,6 +858,9 @@ function AllCardsTable({ cards }) {
                 <td style={styles.td}>{card.cr_card_type || '-'}</td>
                 <td style={styles.td}>{card.has_evolution ? '✓' : ''}</td>
                 <td style={styles.td}>
+                  {card.is_hero_owned && <span style={styles.heroOwned}>OWNED</span>}
+                </td>
+                <td style={styles.td}>
                   {card.is_high_priority && <span style={styles.priority}>HIGH</span>}
                   {card.is_secondary_priority && <span style={styles.secondary}>MED</span>}
                 </td>
@@ -642,14 +873,18 @@ function AllCardsTable({ cards }) {
   );
 }
 
-function NormalDeck({ deck, cards }) {
+function NormalDeck({ deck, cards, sortPriority }) {
   if (!deck || !Array.isArray(deck) || deck.length === 0) {
     return <div style={styles.section}><h2>Normal Deck</h2><p>No data available</p></div>;
   }
   const cardMap = Object.fromEntries((cards || []).map(c => [c.name, c]));
+  const priorityLabel = SORT_PRIORITY_OPTIONS.find(o => o.value === sortPriority)?.label || sortPriority;
   return (
     <div style={styles.section}>
       <h2>Normal Deck ({deck.length} cards)</h2>
+      <p style={{ color: '#666', marginBottom: 12, fontSize: 14 }}>
+        Sorted by: <strong>{priorityLabel}</strong>
+      </p>
       <div>
         {deck.map((name, idx) => {
           const card = cardMap[name];
@@ -664,13 +899,17 @@ function NormalDeck({ deck, cards }) {
   );
 }
 
-function ClanWarDecks({ decks }) {
+function ClanWarDecks({ decks, sortPriority }) {
   if (!decks || !Array.isArray(decks)) {
     return <div style={styles.section}><h2>Clan War Decks</h2><p>No data available</p></div>;
   }
+  const priorityLabel = SORT_PRIORITY_OPTIONS.find(o => o.value === sortPriority)?.label || sortPriority;
   return (
     <div style={styles.section}>
       <h2>Clan War Decks (4 Decks)</h2>
+      <p style={{ color: '#666', marginBottom: 12, fontSize: 14 }}>
+        Sorted by: <strong>{priorityLabel}</strong>
+      </p>
       {decks.map((deck, idx) => (
         <div key={idx} style={{ marginBottom: 16 }}>
           <h3>Deck {idx + 1}</h3>
@@ -840,14 +1079,18 @@ function UpgradeByRarity({ data }) {
   );
 }
 
-function ClanWarCustom({ decks }) {
+function ClanWarCustom({ decks, sortPriority }) {
   if (!decks || !Array.isArray(decks)) {
     return <div style={styles.section}><h2>Clan War Custom</h2><p>No data available</p></div>;
   }
+  const priorityLabel = SORT_PRIORITY_OPTIONS.find(o => o.value === sortPriority)?.label || sortPriority;
   return (
     <div style={styles.section}>
       <h2>Clan War Custom Decks</h2>
       <p>Level requirement: 14 (or 13 for elixir ≤ 2) | Target avg elixir: 3.9 - 4.1</p>
+      <p style={{ color: '#666', marginBottom: 12, fontSize: 14 }}>
+        Sorted by: <strong>{priorityLabel}</strong>
+      </p>
       {decks.map((deck, idx) => (
         <div key={idx} style={{ marginBottom: 24, padding: 16, background: '#f5f5f5', borderRadius: 8 }}>
           <h3>Deck {idx + 1}</h3>

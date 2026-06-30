@@ -74,6 +74,7 @@ class Card:
     count: int = 0
     id: int = 0
     achievement_lefts: int = 0
+    is_hero: bool = False
 
     def __str__(self) -> str:
         return (

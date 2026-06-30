@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from functools import cmp_to_key
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 from clash_royale import (
     Config, DeckSelector, create_comparator, calculate_achievement_lefts,
@@ -40,7 +40,23 @@ DEFAULT_SETTINGS = {
     "highPriorityCards": ["musketeer", "megaminion", "fireball", "zap", "miner", "cannon", "thelog", "balloon", "knight", "wallbreakers"],
     "secondaryPriorityCards": ["hogrider", "battleram", "royalhogs", "suspiciousbush", "ramrider"],
     "mustUseCards": ["hogrider", "battleram", "royalhogs", "suspiciousbush", "ramrider"],
+    "sortPriority": "achievements_rarity_level",
+    "ownedHeroes": ["archerqueen", "goldenknight", "skeletonking", "mightyminer", "monk", "littleprince"],
+    "customSortOrder": [
+        {"field": "achievement_lefts", "direction": "desc", "enabled": True},
+        {"field": "rarity", "direction": "desc", "enabled": True},
+        {"field": "level", "direction": "desc", "enabled": True},
+        {"field": "has_evolution", "direction": "desc", "enabled": True},
+        {"field": "is_hero", "direction": "desc", "enabled": True},
+        {"field": "elixirs", "direction": "desc", "enabled": True},
+    ],
 }
+
+
+class SortCriterion(BaseModel):
+    field: str
+    direction: str = "desc"
+    enabled: bool = True
 
 
 class SettingsModel(BaseModel):
@@ -52,6 +68,9 @@ class SettingsModel(BaseModel):
     highPriorityCards: List[str]
     secondaryPriorityCards: List[str]
     mustUseCards: List[str]
+    sortPriority: str = "achievements_rarity_level"
+    ownedHeroes: List[str] = []
+    customSortOrder: Optional[List[SortCriterion]] = None
 
 
 def load_settings():
