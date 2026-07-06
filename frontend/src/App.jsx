@@ -7,6 +7,7 @@ const DEFAULT_CONFIG = {
   boostedCards: ['megaminion', 'zap', 'knight', 'giant'],
   excludedCards: ['giantbuffer', 'mergemaiden'],
   minimumLevel: 13,
+  minElixir: 31,
   maxElixir: 33,
   kingLevel: 16,  // King Tower level for boosted cards
   highPriorityCards: ['musketeer', 'megaminion', 'fireball', 'zap', 'miner', 'cannon', 'thelog', 'balloon', 'knight', 'wallbreakers'],
@@ -339,16 +340,48 @@ function buildClanWarCustomDecks(cards, config) {
   );
 
   const eligibleCards = cards.filter(meetsLevelReq);
+  
+  // Pre-sort cards by type for role assignment
   const bigSpells = eligibleCards.filter(c => c.cr_card_type === 'BIG_SPELL').sort(priorityComparator);
   const smallSpells = eligibleCards.filter(c => c.cr_card_type === 'SMALL_SPELL').sort(priorityComparator);
+  const singleAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SINGLE_ANTI_AIR').sort(priorityComparator);
+  const splashAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SPLASH_ANTI_AIR').sort(priorityComparator);
+  const towerDestroyers = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DESTROYER').sort(priorityComparator);
   const towerDefenders = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DEFENDER').sort(priorityComparator);
+  
+  // Role types that each deck must have exactly one of
+  const roleTypes = new Set(['BIG_SPELL', 'SMALL_SPELL', 'SINGLE_ANTI_AIR', 'SPLASH_ANTI_AIR', 'TOWER_DESTROYER', 'TOWER_DEFENDER']);
   
   const cardMap = Object.fromEntries(cards.map(c => [c.name, c]));
   const mustUseDistribution = [[0], [1], [2], [3, 4]];
   const decks = [[], [], [], []];
   const usedCards = new Set();
 
-  // Add must-use cards
+  // Helper to check if a card is a hero/champion
+  const isHeroOrChampion = (card) => card.rarity === 'CHAMPION' || card.is_hero_owned;
+  
+  // Helper to count heroes/champions in a deck
+  const countHeroesInDeck = (deck) => deck.filter(isHeroOrChampion).length;
+  
+  // Helper to check if deck has an evolution
+  const deckHasEvolution = (deck) => deck.some(c => c.has_evolution);
+
+  // Helper to add a card from a sorted list to a deck (respecting hero limit)
+  const addFromList = (list, deckIdx) => {
+    const heroCount = countHeroesInDeck(decks[deckIdx]);
+    for (const card of list) {
+      if (!usedCards.has(card.name)) {
+        // Skip if adding this hero/champion would exceed limit of 2
+        if (isHeroOrChampion(card) && heroCount >= 2) continue;
+        decks[deckIdx].push(card);
+        usedCards.add(card.name);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Phase 1: Add must-use cards
   for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
     for (const idx of mustUseDistribution[deckIdx]) {
       if (idx < config.mustUseCards.length) {
@@ -362,41 +395,131 @@ function buildClanWarCustomDecks(cards, config) {
     }
   }
 
-  // Add spells and tower defenders
+  // Phase 2: Add required role cards to each deck
+  // Each deck needs: 1 big spell, 1 small spell, 1 single anti-air, 1 splash anti-air, 1 tower destroyer, 1 tower defender
   for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
-    for (const spell of bigSpells) {
-      if (!usedCards.has(spell.name)) {
-        decks[deckIdx].push(spell);
-        usedCards.add(spell.name);
-        break;
-      }
+    const deckTypes = new Set(decks[deckIdx].map(c => c.cr_card_type).filter(Boolean));
+    
+    // Add big spell (if deck doesn't already have one from must-use)
+    if (!deckTypes.has('BIG_SPELL')) {
+      addFromList(bigSpells, deckIdx);
     }
-    for (const spell of smallSpells) {
-      if (!usedCards.has(spell.name)) {
-        decks[deckIdx].push(spell);
-        usedCards.add(spell.name);
-        break;
-      }
+    
+    // Add small spell (if deck doesn't already have one from must-use)
+    if (!deckTypes.has('SMALL_SPELL')) {
+      addFromList(smallSpells, deckIdx);
     }
-    for (const defender of towerDefenders) {
-      if (!usedCards.has(defender.name)) {
-        decks[deckIdx].push(defender);
-        usedCards.add(defender.name);
-        break;
-      }
+    
+    // Add single anti-air unit
+    if (!deckTypes.has('SINGLE_ANTI_AIR')) {
+      addFromList(singleAntiAir, deckIdx);
+    }
+    
+    // Add splash anti-air unit
+    if (!deckTypes.has('SPLASH_ANTI_AIR')) {
+      addFromList(splashAntiAir, deckIdx);
+    }
+    
+    // Add tower destroyer (if deck doesn't already have one from must-use)
+    if (!deckTypes.has('TOWER_DESTROYER')) {
+      addFromList(towerDestroyers, deckIdx);
+    }
+    
+    // Add tower defender
+    if (!deckTypes.has('TOWER_DEFENDER')) {
+      addFromList(towerDefenders, deckIdx);
     }
   }
 
-  // Fill remaining slots
+  // Phase 3: Fill remaining 2 slots with other card types (not role types)
+  // Exclude role types to ensure variety in deck composition
   const remaining = eligibleCards
-    .filter(c => !usedCards.has(c.name))
+    .filter(c => !usedCards.has(c.name) && !roleTypes.has(c.cr_card_type))
     .sort(priorityComparator);
+
+  const minTotalElixir = config.minElixir || 31;
+  const maxTotalElixir = config.maxElixir || 33;
 
   for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
     while (decks[deckIdx].length < 8 && remaining.length > 0) {
-      const card = remaining.shift();
-      decks[deckIdx].push(card);
-      usedCards.add(card.name);
+      const currentElixir = decks[deckIdx].reduce((sum, c) => sum + c.elixirs, 0);
+      const slotsLeft = 8 - decks[deckIdx].length;
+      const isLastSlot = slotsLeft === 1;
+      const heroCount = countHeroesInDeck(decks[deckIdx]);
+      const hasEvolution = deckHasEvolution(decks[deckIdx]);
+      
+      // Calculate valid elixir range for next card to stay within min/max total
+      const minCardElixir = Math.max(1, minTotalElixir - currentElixir - (slotsLeft - 1) * 9);
+      const maxCardElixir = Math.min(9, maxTotalElixir - currentElixir - (slotsLeft - 1) * 1);
+      
+      const deckTypes = new Set(decks[deckIdx].map(c => c.cr_card_type).filter(Boolean));
+      
+      // Helper to check if a card can be added (respecting hero limit)
+      const canAddCard = (card) => {
+        if (isHeroOrChampion(card) && heroCount >= 2) return false;
+        return true;
+      };
+      
+      // For last slot, prefer evolution if deck doesn't have one yet
+      let added = false;
+      if (isLastSlot && !hasEvolution) {
+        // First try: find evolution card within elixir range
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (card.has_evolution && card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // First try: find card within elixir range that doesn't duplicate card type
+      if (!added) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && !deckTypes.has(card.cr_card_type) && canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // Second try: find any card within elixir range (allow type duplicates)
+      if (!added) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // Fallback: if no card fits elixir constraints, take next available (respecting hero limit)
+      if (!added) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // Ultimate fallback: break if we can't add any card
+      if (!added) break;
     }
   }
 
@@ -730,12 +853,24 @@ function App() {
           </div>
 
           <div style={styles.settingsRow}>
-            <span style={styles.settingsLabel}>Max Elixir:</span>
+            <span style={styles.settingsLabel}>Min Elixir (CW):</span>
+            <input
+              type="number"
+              style={styles.settingsNumber}
+              value={config.minElixir || 31}
+              onChange={(e) => updateConfig('minElixir', parseInt(e.target.value) || 31)}
+              min={20}
+              max={72}
+            />
+          </div>
+
+          <div style={styles.settingsRow}>
+            <span style={styles.settingsLabel}>Max Elixir (CW):</span>
             <input
               type="number"
               style={styles.settingsNumber}
               value={config.maxElixir}
-              onChange={(e) => updateConfig('maxElixir', parseInt(e.target.value) || 32)}
+              onChange={(e) => updateConfig('maxElixir', parseInt(e.target.value) || 33)}
               min={20}
               max={72}
             />
