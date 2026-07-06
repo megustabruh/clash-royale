@@ -282,24 +282,8 @@ function analyzeAllData(rawCards, config) {
     .sort(priorityComparator);
   const normalDeck = deckSortedCards.slice(0, 8).map(c => c.name);
 
-  // Step 7: Clan war decks (4 decks, non-overlapping, round-robin distribution)
-  const clanWarDecks = [[], [], [], []];
-  const usedForClanWar = new Set();
-  let deckIndex = 0;
-  for (const card of deckSortedCards) {
-    if (usedForClanWar.has(card.name)) continue;
-    // Find next deck that isn't full
-    let attempts = 0;
-    while (clanWarDecks[deckIndex].length >= 8 && attempts < 4) {
-      deckIndex = (deckIndex + 1) % 4;
-      attempts++;
-    }
-    if (clanWarDecks[deckIndex].length >= 8) break; // All decks full
-    
-    clanWarDecks[deckIndex].push(card);
-    usedForClanWar.add(card.name);
-    deckIndex = (deckIndex + 1) % 4; // Move to next deck
-  }
+  // Step 7: Clan war decks (4 decks with role requirements, elixir constraints, hero limits)
+  const clanWarDecks = buildClanWarDecksWithConstraints(cards, config, priorityComparator);
 
   // Step 8: Clan war custom (with must-use cards and constraints)
   const clanWarCustom = buildClanWarCustomDecks(cards, config);
@@ -319,6 +303,154 @@ function analyzeAllData(rawCards, config) {
     clan_war_custom: clanWarCustom,
     sort_priority: config.sortPriority || 'achievements_rarity_level',
   };
+}
+
+function buildClanWarDecksWithConstraints(cards, config, priorityComparator) {
+  const meetsLevelReq = (card) => {
+    const minLvl = card.elixirs <= 2 ? 13 : 14;
+    const effectiveLvl = config.boostedCards.includes(card.name) ? 16 : card.level;
+    return effectiveLvl >= minLvl;
+  };
+
+  const eligibleCards = cards.filter(meetsLevelReq);
+  
+  // Pre-sort cards by type for role assignment
+  const bigSpells = eligibleCards.filter(c => c.cr_card_type === 'BIG_SPELL').sort(priorityComparator);
+  const smallSpells = eligibleCards.filter(c => c.cr_card_type === 'SMALL_SPELL').sort(priorityComparator);
+  const singleAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SINGLE_ANTI_AIR').sort(priorityComparator);
+  const splashAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SPLASH_ANTI_AIR').sort(priorityComparator);
+  const towerDestroyers = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DESTROYER').sort(priorityComparator);
+  const towerDefenders = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DEFENDER').sort(priorityComparator);
+  
+  // Role types that each deck must have exactly one of
+  const roleTypes = new Set(['BIG_SPELL', 'SMALL_SPELL', 'SINGLE_ANTI_AIR', 'SPLASH_ANTI_AIR', 'TOWER_DESTROYER', 'TOWER_DEFENDER']);
+  
+  const decks = [[], [], [], []];
+  const usedCards = new Set();
+
+  // Helper to check if a card is a hero/champion
+  const isHeroOrChampion = (card) => card.rarity === 'CHAMPION' || card.is_hero_owned;
+  
+  // Helper to count heroes/champions in a deck
+  const countHeroesInDeck = (deck) => deck.filter(isHeroOrChampion).length;
+  
+  // Helper to check if deck has an evolution
+  const deckHasEvolution = (deck) => deck.some(c => c.has_evolution);
+
+  // Helper to add a card from a sorted list to a deck (respecting hero limit)
+  const addFromList = (list, deckIdx) => {
+    const heroCount = countHeroesInDeck(decks[deckIdx]);
+    for (const card of list) {
+      if (!usedCards.has(card.name)) {
+        // Skip if adding this hero/champion would exceed limit of 2
+        if (isHeroOrChampion(card) && heroCount >= 2) continue;
+        decks[deckIdx].push(card);
+        usedCards.add(card.name);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Phase 1: Add required role cards to each deck
+  for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
+    addFromList(bigSpells, deckIdx);
+    addFromList(smallSpells, deckIdx);
+    addFromList(singleAntiAir, deckIdx);
+    addFromList(splashAntiAir, deckIdx);
+    addFromList(towerDestroyers, deckIdx);
+    addFromList(towerDefenders, deckIdx);
+  }
+
+  // Phase 2: Fill remaining 2 slots with other card types (not role types)
+  const remaining = eligibleCards
+    .filter(c => !usedCards.has(c.name) && !roleTypes.has(c.cr_card_type))
+    .sort(priorityComparator);
+
+  const minTotalElixir = config.minElixir || 31;
+  const maxTotalElixir = config.maxElixir || 33;
+
+  for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
+    while (decks[deckIdx].length < 8 && remaining.length > 0) {
+      const currentElixir = decks[deckIdx].reduce((sum, c) => sum + c.elixirs, 0);
+      const slotsLeft = 8 - decks[deckIdx].length;
+      const isLastSlot = slotsLeft === 1;
+      const heroCount = countHeroesInDeck(decks[deckIdx]);
+      const hasEvolution = deckHasEvolution(decks[deckIdx]);
+      
+      const minCardElixir = Math.max(1, minTotalElixir - currentElixir - (slotsLeft - 1) * 9);
+      const maxCardElixir = Math.min(9, maxTotalElixir - currentElixir - (slotsLeft - 1) * 1);
+      
+      const deckTypes = new Set(decks[deckIdx].map(c => c.cr_card_type).filter(Boolean));
+      
+      const canAddCard = (card) => {
+        if (isHeroOrChampion(card) && heroCount >= 2) return false;
+        return true;
+      };
+      
+      let added = false;
+      
+      // For last slot, prefer evolution if deck doesn't have one yet
+      if (isLastSlot && !hasEvolution) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (card.has_evolution && card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // First try: card within elixir range that doesn't duplicate type
+      if (!added) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && !deckTypes.has(card.cr_card_type) && canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // Second try: any card within elixir range
+      if (!added) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      // Fallback
+      if (!added) {
+        for (let i = 0; i < remaining.length; i++) {
+          const card = remaining[i];
+          if (canAddCard(card)) {
+            decks[deckIdx].push(card);
+            remaining.splice(i, 1);
+            usedCards.add(card.name);
+            added = true;
+            break;
+          }
+        }
+      }
+      
+      if (!added) break;
+    }
+  }
+
+  return decks;
 }
 
 function buildClanWarCustomDecks(cards, config) {
