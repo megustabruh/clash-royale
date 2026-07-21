@@ -38,10 +38,17 @@ class CRCardType(Enum):
     SMALL_SPELL = auto()
     BIG_SPELL = auto()
     MINI_TANK = auto()
+    TANK = auto()            # Big tanks (5+ elixir)
     DISTRACTION = auto()
     TOWER_DESTROYER = auto()
     TOWER_DEFENDER = auto()
     SPELL_TROOP = auto()
+    SWARM = auto()           # Multiple units spawned together
+    CYCLE = auto()           # Low-cost cycling cards (1-2 elixir)
+    BUILDING = auto()        # All buildings/structures
+    AIR_TROOP = auto()       # Flying units
+    BRIDGE_SPAM = auto()     # Fast pressure cards for bridge spam
+    CHAMPION = auto()        # Champion cards
     OTHERS = auto()
 
 
@@ -151,28 +158,66 @@ CARD_TYPE_MAPPINGS: Dict[CRCardType, frozenset] = {
         "battleram", "lavahound", "royalhogs", "elixirgolem",  "goblindrill", "magicarcher", "skeletonbarrel"
     ]),
     CRCardType.DISTRACTION: frozenset([
-        "goblinbarrel", "archers", "goblindrill", "icespirit", "skeletonking",
-        "skeletonarmy", "barbarians", "goblins", "goblingang", "speargoblins",
-        "guards", "skeletonbarrel", "bomber", "skeletons", "bats", "bandit",
-        "miner", "royalghost", "phoenix", "wallbreakers", "royalhogs",
-        "hogrider", "lavahound", "ronin"
+        # Small cheap units that distract enemies (under 3 elixir typically)
+        "skeletons", "bats", "goblins", "speargoblins", "icespirit",
+        "electrospirit", "firespirit", "healspirit", "guards", "icegolem",
+        "goblinbarrel", "goblindrill"
     ]),
     CRCardType.MINI_TANK: frozenset([
-        "speargoblins", "rascals", "icegolem", "goldenknight", "prince",
-        "darkprince", "bandit", "minipekka", "fisherman", "battlehealer",
-        "royalghost", "knight", "valkyrie", "miner", "mightyminer", "spiritempress",
-        "hunter", "megaknight", "pekka", "skeletonking", "lumberjack",
-        "battleram", "ramrider", "goblingiant", "golem", "elixirgolem",
-        "giant", "royalgiant", "nightwitch", "cannoncart", "giantskeleton",
-        "runegiant", "ronin"
+        # Medium-cost tanks (3-5 elixir) that can take hits
+        "knight", "valkyrie", "darkprince", "minipekka", "fisherman",
+        "lumberjack", "hunter", "battlehealer", "ronin", "prince",
+        "cannoncart", "nightwitch", "bowler"
     ]),
     CRCardType.OTHERS: frozenset([
-        "mirror", "royalrecruits", "elixircollector", "goblinmachine",
-        "bossbandit", "suspiciousbush", "berserker", "clone",
-        "sparky", "prince", "darkprince", "miner", "goblinbarrel",
-        "graveyard", "elitebarbarians", "infernodragon", "goldenknight",
-        "archerqueen", "mightyminer", "littleprince",
-        "threemusketeers"
+        # Special/unique cards that don't fit other categories
+        "mirror", "clone", "graveyard", "elixircollector", "goblinmachine",
+        "suspiciousbush", "berserker"
+    ]),
+    # New card types
+    CRCardType.SWARM: frozenset([
+        # Multiple units spawned together
+        "skeletonarmy", "minionhorde", "goblingang", "barbarians",
+        "guards", "rascals", "royalrecruits", "skeletonbarrel",
+        "goblins", "speargoblins", "minions", "bats", "skeletons",
+        "threemusketeers", "archers", "firecracker"
+    ]),
+    CRCardType.CYCLE: frozenset([
+        # Low-cost cycling cards (1-2 elixir)
+        "skeletons", "icespirit", "electrospirit", "firespirit", "healspirit",
+        "bats", "goblins", "zap", "thelog", "giantsnowball", "arrows",
+        "icegolem", "speargoblins"
+    ]),
+    CRCardType.BUILDING: frozenset([
+        # All buildings/structures
+        "cannon", "tesla", "infernotower", "furnace", "tombstone",
+        "goblinhut", "barbarianhut", "bombtower", "goblincage",
+        "mortar", "x-bow", "elixircollector"
+    ]),
+    CRCardType.AIR_TROOP: frozenset([
+        # Flying units
+        "balloon", "lavahound", "babydragon", "megaminion", "minions",
+        "minionhorde", "bats", "infernodragon", "flyingmachine",
+        "skeletondragons", "electrodragon", "phoenix", "skeletonbarrel",
+        "goblinstein"
+    ]),
+    CRCardType.BRIDGE_SPAM: frozenset([
+        # Fast pressure cards for bridge spam
+        "bandit", "battleram", "ramrider", "darkprince", "prince",
+        "royalghost", "goldenknight", "electrowizard", "lumberjack",
+        "minipekka", "miner", "wallbreakers", "goblinbarrel", "hogrider",
+        "royalhogs", "elitebarbarians", "ronin", "skeletonking"
+    ]),
+    CRCardType.TANK: frozenset([
+        # Big tanks (5+ elixir) that soak damage
+        "megaknight", "pekka", "golem", "giant", "royalgiant",
+        "goblingiant", "elixirgolem", "giantskeleton", "runegiant",
+        "electrogiant", "lavahound", "sparky"
+    ]),
+    CRCardType.CHAMPION: frozenset([
+        # All champion cards
+        "archerqueen", "goldenknight", "skeletonking", "mightyminer",
+        "monk", "littleprince"
     ]),
 }
 
@@ -205,7 +250,8 @@ BADGE_TO_CARD_MAPPINGS: Dict[str, str] = {
     "dartbarrell": "flyingmachine",
     "xbow": "x-bow",
     "giantbuffer": "runegiant",
-    "mergemaiden": "spiritempress"
+    "mergemaiden": "spiritempress",
+    "samurai": "ronin"
 }
 
 # Priority cards for upgrade recommendations
@@ -266,7 +312,7 @@ def calculate_achievement_lefts(card: Card) -> int:
         Rarity.COMMON: (14, 10, 7),
         Rarity.RARE: (14, 11, 8),
         Rarity.EPIC: (14, 11, 9),
-        Rarity.LEGENDARY: (14, 12, 10),
+        Rarity.LEGENDARY: (14, 11, 10),  # Level 11 gets 7 achievements
         Rarity.CHAMPION: (14, 13, 12),
     }
 
@@ -389,9 +435,11 @@ class DeckSelector:
             if "Mastery" not in badge_name:
                 continue
 
-            card_name = get_badge_to_card_name(
-                badge_name.replace("Mastery", "").replace(" ", "").lower()
-            )
+            raw_name = badge_name.replace("Mastery", "").replace(" ", "").lower()
+            card_name = get_badge_to_card_name(raw_name)
+            # Debug log for ronin-related badges
+            if "ronin" in raw_name.lower() or "samurai" in raw_name.lower():
+                self._log(f"DEBUG Badge: raw={badge_name}, processed={raw_name}, mapped={card_name}, badge_level={badge.get('level', 0)}")
             card = Card(
                 name=card_name,
                 badge_level=badge.get("level", 0),
@@ -445,6 +493,9 @@ class DeckSelector:
             card.achievement_lefts = calculate_achievement_lefts(card)
             if card.rarity is None:
                 self._log(f"Unknown rarity: {card.name}")
+            # Debug logging for Ronin
+            if "ronin" in card.name.lower():
+                self._log(f"DEBUG Ronin: name={card.name}, level={card.level}, badge_level={card.badge_level}, rarity={card.rarity}, achievement_lefts={card.achievement_lefts}")
 
         return True
 
@@ -885,10 +936,10 @@ class DeckSelector:
 
             eligible_cards = [c for c in self.cards if meets_level_req(c)]
             
-            # Categorize cards
-            big_spells = [c for c in eligible_cards if c.clash_royale_card_type == CRCardType.BIG_SPELL]
-            small_spells = [c for c in eligible_cards if c.clash_royale_card_type == CRCardType.SMALL_SPELL]
-            tower_defenders = [c for c in eligible_cards if c.clash_royale_card_type == CRCardType.TOWER_DEFENDER]
+            # Categorize cards (using multiple types)
+            big_spells = [c for c in eligible_cards if CRCardType.BIG_SPELL in c.clash_royale_card_types]
+            small_spells = [c for c in eligible_cards if CRCardType.SMALL_SPELL in c.clash_royale_card_types]
+            tower_defenders = [c for c in eligible_cards if CRCardType.TOWER_DEFENDER in c.clash_royale_card_types]
             
             # Sort by achievements left (descending)
             big_spells.sort(key=lambda c: -c.achievement_lefts)
@@ -956,14 +1007,18 @@ class DeckSelector:
                     max_card_elixir = min(9, MAX_TOTAL_ELIXIR - current_elixir - (slots_left - 1) * 1)
                     
                     # Try to add card with different type for diversity
-                    deck_types = {c.clash_royale_card_type for c in decks[deck_idx] if c.clash_royale_card_type}
+                    deck_types = set()
+                    for c in decks[deck_idx]:
+                        if c.clash_royale_card_types:
+                            deck_types.update(c.clash_royale_card_types)
                     
                     added = False
                     for card in remaining:
                         # Check elixir constraint
                         if not (min_card_elixir <= card.elixirs <= max_card_elixir):
                             continue
-                        if card.clash_royale_card_type not in deck_types:
+                        card_types = set(card.clash_royale_card_types) if card.clash_royale_card_types else set()
+                        if not card_types.intersection(deck_types):
                             decks[deck_idx].append(card)
                             remaining.remove(card)
                             used_cards.add(card.name)
@@ -1001,10 +1056,10 @@ class DeckSelector:
                 print(f"\n--- Deck {deck_idx} ({len(deck)} cards, avg {avg_elixir:.1f} elixir, {total_achv} achievements) ---")
                 print(f"{'#':<3} {'Card':<18} {'Lvl':<5} {'Achv':<6} {'Elixir':<7} {'Type'}")
                 for i, card in enumerate(deck, 1):
-                    type_name = card.clash_royale_card_type.name if card.clash_royale_card_type else "OTHER"
+                    type_names = ','.join(t.name for t in card.clash_royale_card_types) if card.clash_royale_card_types else "OTHER"
                     boosted = "[B]" if card.name in self.config.boosted_cards else ""
                     must_use = "[M]" if card.name in MUST_USE_CARDS else ""
-                    print(f"{i:<3} {card.name:<18} {card.level:<5} {card.achievement_lefts:<6} {card.elixirs:<7} {type_name} {boosted}{must_use}")
+                    print(f"{i:<3} {card.name:<18} {card.level:<5} {card.achievement_lefts:<6} {card.elixirs:<7} {type_names} {boosted}{must_use}")
             
             print("\nLegend: [B] = Boosted, [M] = Must-Use Card")
             return "\n".join(self.output_log)
@@ -1079,7 +1134,7 @@ def get_clash_royale_data(deck_type: int = 1):
             "level": c.level,
             "temp_level": c.temp_level,
             "card_type": c.card_type.name if c.card_type else None,
-            "cr_card_type": c.clash_royale_card_type.name if c.clash_royale_card_type else None,
+            "cr_card_types": [t.name for t in c.clash_royale_card_types] if c.clash_royale_card_types else [],
             "rarity": c.rarity.name if c.rarity else None,
             "elixirs": c.elixirs,
             "has_evolution": c.has_evolution,

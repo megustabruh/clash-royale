@@ -2,6 +2,24 @@ import { useEffect, useState, useMemo } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// All available card types
+const ALL_CARD_TYPES = [
+  'SINGLE_ANTI_AIR', 'SPLASH_ANTI_AIR', 'SMALL_SPELL', 'BIG_SPELL', 
+  'MINI_TANK', 'TANK', 'DISTRACTION', 'TOWER_DESTROYER', 'TOWER_DEFENDER',
+  'SPELL_TROOP', 'SWARM', 'CYCLE', 'BUILDING', 'AIR_TROOP', 
+  'BRIDGE_SPAM', 'CHAMPION', 'OTHERS'
+];
+
+// Default card type requirements for deck building
+const DEFAULT_DECK_TYPE_REQUIREMENTS = {
+  BIG_SPELL: 1,
+  SMALL_SPELL: 1,
+  TOWER_DESTROYER: 1,
+  TOWER_DEFENDER: 1,
+  SINGLE_ANTI_AIR: 1,
+  SPLASH_ANTI_AIR: 1,
+};
+
 // Default configuration values (matching backend)
 const DEFAULT_CONFIG = {
   boostedCards: ['megaminion', 'zap', 'knight', 'giant'],
@@ -23,6 +41,7 @@ const DEFAULT_CONFIG = {
     { field: 'is_hero', direction: 'desc', enabled: true },
     { field: 'elixirs', direction: 'desc', enabled: true },
   ],
+  deckTypeRequirements: DEFAULT_DECK_TYPE_REQUIREMENTS,
 };
 
 // Available sort criteria for custom sorting
@@ -122,6 +141,43 @@ const TEN_ACHIEVEMENT_CARDS = {
   EPIC: ['babydragon', 'balloon', 'bowler', 'pekka', 'wallbreakers'],
   LEGENDARY: ['electrowizard', 'graveyard', 'megaknight', 'princess', 'thelog'],
 };
+
+// Helper to check if a card has a specific type
+function hasCardType(card, type) {
+  return card.cr_card_types && card.cr_card_types.includes(type);
+}
+
+// Build a deck with type constraints
+// typeRequirements: { TYPE_NAME: count } - how many cards of each type to include
+// Returns array of card names
+function buildDeckWithTypeConstraints(sortedCards, typeRequirements, deckSize = 8) {
+  const deck = [];
+  const usedCards = new Set();
+  const requiredTypes = Object.entries(typeRequirements).filter(([, count]) => count > 0);
+  
+  // Phase 1: Fulfill type requirements
+  for (const [type, count] of requiredTypes) {
+    const cardsOfType = sortedCards.filter(c => 
+      hasCardType(c, type) && !usedCards.has(c.name)
+    );
+    for (let i = 0; i < count && i < cardsOfType.length && deck.length < deckSize; i++) {
+      const card = cardsOfType[i];
+      deck.push(card);
+      usedCards.add(card.name);
+    }
+  }
+  
+  // Phase 2: Fill remaining slots with best remaining cards
+  for (const card of sortedCards) {
+    if (deck.length >= deckSize) break;
+    if (!usedCards.has(card.name)) {
+      deck.push(card);
+      usedCards.add(card.name);
+    }
+  }
+  
+  return deck.map(c => c.name);
+}
 
 const styles = {
   container: { padding: 24, fontFamily: 'Arial, sans-serif', maxWidth: 1400, margin: '0 auto' },
@@ -295,7 +351,10 @@ function analyzeAllData(rawCards, config) {
   const deckSortedCards = [...cards]
     .filter(c => c.temp_level >= config.minimumLevel)
     .sort(priorityComparator);
-  const normalDeck = deckSortedCards.slice(0, 8).map(c => c.name);
+  
+  // Build normal deck with type requirements
+  const typeReqs = config.deckTypeRequirements || DEFAULT_DECK_TYPE_REQUIREMENTS;
+  const normalDeck = buildDeckWithTypeConstraints(deckSortedCards, typeReqs, 8);
 
   // Step 7: Clan war decks (4 decks with role requirements, elixir constraints, hero limits)
   const clanWarDecks = buildClanWarDecksWithConstraints(cards, config, priorityComparator);
@@ -838,6 +897,7 @@ function App() {
     { id: 'upgrade_rarity', label: '💎 By Rarity' },
     { id: 'clan_war_custom', label: '🏆 CW Custom' },
     { id: 'deck_builder', label: '🔨 Deck Builder' },
+    { id: 'card_types', label: '🏷️ Card Types' },
   ];
 
   return (
@@ -1104,14 +1164,15 @@ function App() {
       </div>
 
       {activeTab === 'cards' && <AllCardsTable cards={data.cards} />}
-      {activeTab === 'normal_deck' && <NormalDeck deck={data.normal_deck} cards={data.cards} sortPriority={data.sort_priority} />}
-      {activeTab === 'clan_war' && <ClanWarDecks decks={data.clan_war_decks} sortPriority={data.sort_priority} />}
+      {activeTab === 'normal_deck' && <NormalDeck deck={data.normal_deck} cards={data.cards} sortPriority={data.sort_priority} config={config} />}
+      {activeTab === 'clan_war' && <ClanWarDecks decks={data.clan_war_decks} cards={data.cards} sortPriority={data.sort_priority} config={config} />}
       {activeTab === 'achievement_stats' && <AchievementStats stats={data.achievement_stats} cardsByType={data.cards_by_type} />}
       {activeTab === 'upgrade_recs' && <UpgradeRecommendations data={data.upgrade_recommendations} />}
       {activeTab === 'upgrade_priority' && <UpgradePriority cards={data.upgrade_priority} />}
       {activeTab === 'upgrade_rarity' && <UpgradeByRarity data={data.upgrade_by_rarity} />}
       {activeTab === 'clan_war_custom' && <ClanWarCustom decks={data.clan_war_custom} sortPriority={data.sort_priority} />}
-      {activeTab === 'deck_builder' && <DeckBuilder cards={data.cards} />}
+      {activeTab === 'deck_builder' && <DeckBuilder cards={data.cards} config={config} />}
+      {activeTab === 'card_types' && <CardTypesDashboard allCards={data.cards} />}
     </div>
   );
 }
@@ -1121,8 +1182,8 @@ function App() {
 // =============================================================================
 
 function AllCardsTable({ cards }) {
-  const [sortCol, setSortCol] = useState('name');
-  const [sortDir, setSortDir] = useState('asc');
+  const [sortCol, setSortCol] = useState('achievements');
+  const [sortDir, setSortDir] = useState('desc');
 
   if (!cards || !Array.isArray(cards)) {
     return <div style={styles.section}><h2>All Cards</h2><p>No data available</p></div>;
@@ -1213,20 +1274,136 @@ function AllCardsTable({ cards }) {
   );
 }
 
-function NormalDeck({ deck, cards, sortPriority }) {
-  if (!deck || !Array.isArray(deck) || deck.length === 0) {
+// =============================================================================
+// Card Type Requirements Editor - Reusable component
+// =============================================================================
+function CardTypeRequirementsEditor({ requirements, onChange, compact = false }) {
+  const typeDisplayNames = {
+    SINGLE_ANTI_AIR: '🎯 Single Anti-Air',
+    SPLASH_ANTI_AIR: '💥 Splash Anti-Air',
+    SMALL_SPELL: '✨ Small Spell',
+    BIG_SPELL: '💣 Big Spell',
+    SPELL_TROOP: '🔮 Spell Troop',
+    TOWER_DEFENDER: '🛡️ Tower Defender',
+    TOWER_DESTROYER: '⚔️ Tower Destroyer',
+    DISTRACTION: '🎭 Distraction',
+    MINI_TANK: '🛡️ Mini Tank',
+    TANK: '🦣 Tank',
+    SWARM: '🐜 Swarm',
+    CYCLE: '🔄 Cycle',
+    BUILDING: '🏗️ Building',
+    AIR_TROOP: '🦅 Air Troop',
+    BRIDGE_SPAM: '⚡ Bridge Spam',
+    CHAMPION: '👑 Champion',
+    OTHERS: '📦 Others',
+  };
+
+  const updateRequirement = (type, value) => {
+    const newReqs = { ...requirements };
+    if (value > 0) {
+      newReqs[type] = value;
+    } else {
+      delete newReqs[type];
+    }
+    onChange(newReqs);
+  };
+
+  const editorStyles = {
+    container: { display: 'flex', flexWrap: 'wrap', gap: compact ? 8 : 12, padding: 8, background: '#f5f5f5', borderRadius: 8 },
+    item: { display: 'flex', alignItems: 'center', gap: 4, background: '#fff', padding: compact ? '4px 8px' : '6px 10px', borderRadius: 4, border: '1px solid #ddd', fontSize: compact ? 12 : 13 },
+    label: { minWidth: compact ? 80 : 120 },
+    input: { width: 40, padding: '2px 4px', borderRadius: 4, border: '1px solid #ccc', textAlign: 'center' },
+    activeItem: { borderColor: '#4caf50', background: '#e8f5e9' },
+  };
+
+  return (
+    <div style={editorStyles.container}>
+      {ALL_CARD_TYPES.map(type => {
+        const count = requirements[type] || 0;
+        return (
+          <div 
+            key={type} 
+            style={{ ...editorStyles.item, ...(count > 0 ? editorStyles.activeItem : {}) }}
+          >
+            <span style={editorStyles.label}>{typeDisplayNames[type] || type}</span>
+            <input
+              type="number"
+              min={0}
+              max={8}
+              value={count}
+              onChange={(e) => updateRequirement(type, parseInt(e.target.value) || 0)}
+              style={editorStyles.input}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NormalDeck({ deck, cards, sortPriority, config }) {
+  const [localTypeReqs, setLocalTypeReqs] = useState(config?.deckTypeRequirements || DEFAULT_DECK_TYPE_REQUIREMENTS);
+  const [showEditor, setShowEditor] = useState(false);
+
+  // Rebuild deck with local type requirements
+  const rebuiltDeck = useMemo(() => {
+    if (!cards || !Array.isArray(cards)) return deck;
+    const minLevel = config?.minimumLevel || 13;
+    const boostedCards = new Set(config?.boostedCards || []);
+    const kingLevel = config?.kingLevel || 16;
+    
+    const eligibleCards = cards.filter(c => {
+      const effectiveLevel = boostedCards.has(c.name) ? kingLevel : c.level;
+      return effectiveLevel >= minLevel;
+    });
+    
+    // Sort by priority
+    const priorityComparator = createPriorityComparator(
+      config?.sortPriority || 'achievements_rarity_level',
+      config?.customSortOrder || []
+    );
+    const sortedCards = [...eligibleCards].sort(priorityComparator);
+    
+    return buildDeckWithTypeConstraints(sortedCards, localTypeReqs, 8);
+  }, [cards, config, localTypeReqs, deck]);
+
+  if (!rebuiltDeck || !Array.isArray(rebuiltDeck) || rebuiltDeck.length === 0) {
     return <div style={styles.section}><h2>Normal Deck</h2><p>No data available</p></div>;
   }
+
   const cardMap = Object.fromEntries((cards || []).map(c => [c.name, c]));
   const priorityLabel = SORT_PRIORITY_OPTIONS.find(o => o.value === sortPriority)?.label || sortPriority;
+  const totalReqs = Object.values(localTypeReqs).reduce((sum, v) => sum + v, 0);
+
   return (
     <div style={styles.section}>
-      <h2>Normal Deck ({deck.length} cards)</h2>
+      <h2>Normal Deck ({rebuiltDeck.length} cards)</h2>
       <p style={{ color: '#666', marginBottom: 12, fontSize: 14 }}>
-        Sorted by: <strong>{priorityLabel}</strong>
+        Sorted by: <strong>{priorityLabel}</strong> | Required types: <strong>{totalReqs}</strong>
       </p>
+      
+      <button 
+        style={{ ...styles.toggleBtn, marginBottom: 12 }}
+        onClick={() => setShowEditor(!showEditor)}
+      >
+        {showEditor ? '🔒 Hide Type Requirements' : '⚙️ Edit Type Requirements'}
+      </button>
+
+      {showEditor && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>
+            Set how many cards of each type should be in the deck (0 = no requirement):
+          </p>
+          <CardTypeRequirementsEditor 
+            requirements={localTypeReqs} 
+            onChange={setLocalTypeReqs}
+            compact={true}
+          />
+        </div>
+      )}
+
       <div>
-        {deck.map((name, idx) => {
+        {rebuiltDeck.map((name, idx) => {
           const card = cardMap[name];
           return (
             <span key={idx} style={styles.deckCard}>
@@ -1239,18 +1416,79 @@ function NormalDeck({ deck, cards, sortPriority }) {
   );
 }
 
-function ClanWarDecks({ decks, sortPriority }) {
-  if (!decks || !Array.isArray(decks)) {
+function ClanWarDecks({ decks, cards, sortPriority, config }) {
+  const [localTypeReqs, setLocalTypeReqs] = useState(config?.deckTypeRequirements || DEFAULT_DECK_TYPE_REQUIREMENTS);
+  const [showEditor, setShowEditor] = useState(false);
+
+  // Rebuild 4 clan war decks with local type requirements
+  const rebuiltDecks = useMemo(() => {
+    if (!cards || !Array.isArray(cards)) return decks;
+    
+    const minLevel = config?.minimumLevel || 13;
+    const boostedCards = new Set(config?.boostedCards || []);
+    const kingLevel = config?.kingLevel || 16;
+    
+    const eligibleCards = cards.filter(c => {
+      const effectiveLevel = boostedCards.has(c.name) ? kingLevel : c.level;
+      return effectiveLevel >= minLevel;
+    });
+    
+    const priorityComparator = createPriorityComparator(
+      config?.sortPriority || 'achievements_rarity_level',
+      config?.customSortOrder || []
+    );
+    const sortedCards = [...eligibleCards].sort(priorityComparator);
+    
+    // Build 4 decks without reusing cards
+    const allDecks = [];
+    const usedCards = new Set();
+    
+    for (let i = 0; i < 4; i++) {
+      const availableCards = sortedCards.filter(c => !usedCards.has(c.name));
+      const deckNames = buildDeckWithTypeConstraints(availableCards, localTypeReqs, 8);
+      const deckCards = deckNames.map(name => cards.find(c => c.name === name)).filter(Boolean);
+      deckCards.forEach(c => usedCards.add(c.name));
+      allDecks.push(deckCards);
+    }
+    
+    return allDecks;
+  }, [cards, config, decks, localTypeReqs]);
+
+  if (!rebuiltDecks || !Array.isArray(rebuiltDecks)) {
     return <div style={styles.section}><h2>Clan War Decks</h2><p>No data available</p></div>;
   }
+  
   const priorityLabel = SORT_PRIORITY_OPTIONS.find(o => o.value === sortPriority)?.label || sortPriority;
+  const totalReqs = Object.values(localTypeReqs).reduce((sum, v) => sum + v, 0);
+
   return (
     <div style={styles.section}>
       <h2>Clan War Decks (4 Decks)</h2>
       <p style={{ color: '#666', marginBottom: 12, fontSize: 14 }}>
-        Sorted by: <strong>{priorityLabel}</strong>
+        Sorted by: <strong>{priorityLabel}</strong> | Required types per deck: <strong>{totalReqs}</strong>
       </p>
-      {decks.map((deck, idx) => (
+      
+      <button 
+        style={{ ...styles.toggleBtn, marginBottom: 12 }}
+        onClick={() => setShowEditor(!showEditor)}
+      >
+        {showEditor ? '🔒 Hide Type Requirements' : '⚙️ Edit Type Requirements'}
+      </button>
+
+      {showEditor && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 13, color: '#666', marginBottom: 8 }}>
+            Set how many cards of each type should be in each deck:
+          </p>
+          <CardTypeRequirementsEditor 
+            requirements={localTypeReqs} 
+            onChange={setLocalTypeReqs}
+            compact={true}
+          />
+        </div>
+      )}
+
+      {rebuiltDecks.map((deck, idx) => (
         <div key={idx} style={{ marginBottom: 16 }}>
           <h3>Deck {idx + 1}</h3>
           <div>
@@ -1534,10 +1772,13 @@ function ClanWarCustom({ decks, sortPriority }) {
   );
 }
 
-function DeckBuilder({ cards }) {
+function DeckBuilder({ cards, config }) {
   const [selectedCards, setSelectedCards] = useState(new Set());
   const [deckSize, setDeckSize] = useState(8);
   const [searchTerm, setSearchTerm] = useState('');
+  const [useTypeConstraints, setUseTypeConstraints] = useState(false);
+  const [localTypeReqs, setLocalTypeReqs] = useState(config?.deckTypeRequirements || DEFAULT_DECK_TYPE_REQUIREMENTS);
+  const [showTypeEditor, setShowTypeEditor] = useState(false);
 
   if (!cards || !Array.isArray(cards)) {
     return <div style={styles.section}><h2>Deck Builder</h2><p>No data available</p></div>;
@@ -1568,14 +1809,119 @@ function DeckBuilder({ cards }) {
     c.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Build deck from selected cards (sorted by lowest achievement_lefts first)
+  // Build deck from selected cards
   const selectedCardsList = cards.filter(c => selectedCards.has(c.name));
   const sortedByAchievements = [...selectedCardsList].sort((a, b) => a.achievement_lefts - b.achievement_lefts);
-  const generatedDeck = sortedByAchievements.slice(0, deckSize);
+  
+  // Build deck - either with type constraints or just by achievements
+  let generatedDeck;
+  if (useTypeConstraints) {
+    // Build with type constraints from selected cards
+    const deckNames = buildDeckWithTypeConstraints(sortedByAchievements, localTypeReqs, deckSize);
+    generatedDeck = deckNames.map(name => cards.find(c => c.name === name)).filter(Boolean);
+  } else {
+    generatedDeck = sortedByAchievements.slice(0, deckSize);
+  }
 
   const totalElixir = generatedDeck.reduce((sum, c) => sum + c.elixirs, 0);
   const avgElixir = generatedDeck.length > 0 ? (totalElixir / generatedDeck.length).toFixed(1) : 0;
   const totalAchievements = generatedDeck.reduce((sum, c) => sum + c.achievement_lefts, 0);
+
+  // Get deck types for suggestions
+  const getDeckTypes = (deck) => {
+    const types = new Set();
+    for (const card of deck) {
+      if (card.cr_card_types) {
+        card.cr_card_types.forEach(t => types.add(t));
+      }
+    }
+    return types;
+  };
+
+  // Generate smart suggestions based on settings and current deck
+  const getSuggestions = () => {
+    if (generatedDeck.length === 0) return [];
+    
+    const deckTypes = getDeckTypes(generatedDeck);
+    const deckCardNames = new Set(generatedDeck.map(c => c.name));
+    
+    // Get all settings
+    const minLevel = config?.minimumLevel || 13;
+    const excludedCards = new Set(config?.excludedCards || []);
+    const boostedCards = new Set(config?.boostedCards || []);
+    const kingLevel = config?.kingLevel || 16;
+    const highPriorityCards = new Set(config?.highPriorityCards || []);
+    const secondaryPriorityCards = new Set(config?.secondaryPriorityCards || []);
+    const mustUseCards = new Set(config?.mustUseCards || []);
+    const ownedHeroes = new Set((config?.ownedHeroes || []).map(h => h.toLowerCase()));
+    
+    // Filter cards that meet requirements
+    const eligibleCards = cards.filter(card => {
+      // Not already in deck
+      if (deckCardNames.has(card.name)) return false;
+      // Not excluded
+      if (excludedCards.has(card.name)) return false;
+      // Meet minimum level (consider boosted cards)
+      const effectiveLevel = boostedCards.has(card.name) ? kingLevel : card.level;
+      if (effectiveLevel < minLevel) return false;
+      return true;
+    });
+    
+    // Score cards by relevance
+    const scoredCards = eligibleCards.map(card => {
+      let score = 0;
+      const isBoosted = boostedCards.has(card.name);
+      const effectiveLevel = isBoosted ? kingLevel : card.level;
+      
+      // HIGHEST: Must-use cards (from settings)
+      if (mustUseCards.has(card.name)) score += 100;
+      
+      // HIGH: High priority cards (from settings)
+      if (highPriorityCards.has(card.name)) score += 50;
+      
+      // MEDIUM: Secondary priority cards (from settings)
+      if (secondaryPriorityCards.has(card.name)) score += 30;
+      
+      // Higher achievements = better for mastery grinding
+      score += card.achievement_lefts * 10;
+      
+      // Bonus for sharing types with deck (good synergy)
+      if (card.cr_card_types) {
+        for (const type of card.cr_card_types) {
+          if (deckTypes.has(type)) score += 5;
+        }
+      }
+      
+      // Bonus for owned heroes (from settings)
+      if (ownedHeroes.has(card.name.toLowerCase())) score += 25;
+      
+      // Bonus for boosted cards (effectively higher level)
+      if (isBoosted) score += 15;
+      
+      // Small bonus for evolution cards
+      if (card.has_evolution) score += 5;
+      
+      // Rarity bonus
+      const rarityScore = { CHAMPION: 5, LEGENDARY: 4, EPIC: 3, RARE: 2, COMMON: 1 };
+      score += (rarityScore[card.rarity] || 0) * 2;
+      
+      return { 
+        ...card, 
+        suggestionScore: score,
+        effectiveLevel,
+        isBoosted,
+        isMustUse: mustUseCards.has(card.name),
+        isHighPriority: highPriorityCards.has(card.name),
+        isSecondaryPriority: secondaryPriorityCards.has(card.name),
+        isOwnedHero: ownedHeroes.has(card.name.toLowerCase()),
+      };
+    });
+    
+    // Sort by score descending and return top 10
+    return scoredCards.sort((a, b) => b.suggestionScore - a.suggestionScore).slice(0, 10);
+  };
+
+  const suggestions = getSuggestions();
 
   // Group cards by type for easier selection (cards can appear in multiple groups)
   const cardsByType = {};
@@ -1603,6 +1949,9 @@ function DeckBuilder({ cards }) {
     btnGroup: { display: 'flex', gap: 8, marginBottom: 12 },
     smallBtn: { padding: '6px 12px', background: '#607d8b', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12 },
     deckSizeInput: { width: 60, padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc' },
+    suggestionsPanel: { flex: '1 1 300px', padding: 16, background: '#fff3e0', borderRadius: 8, border: '1px solid #ffcc80' },
+    suggestionCard: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', marginBottom: 4, background: '#fff', borderRadius: 4, border: '1px solid #ddd', cursor: 'pointer' },
+    suggestionScore: { fontSize: 11, color: '#ff9800', fontWeight: 'bold' },
   };
 
   return (
@@ -1650,7 +1999,7 @@ function DeckBuilder({ cards }) {
         <div style={builderStyles.deckPanel}>
           <h3 style={{ marginTop: 0 }}>🎯 Generated Deck</h3>
           
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 12, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <label>
               Deck Size: 
               <input
@@ -1662,7 +2011,33 @@ function DeckBuilder({ cards }) {
                 style={builderStyles.deckSizeInput}
               />
             </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <input
+                type="checkbox"
+                checked={useTypeConstraints}
+                onChange={(e) => setUseTypeConstraints(e.target.checked)}
+              />
+              Use Type Requirements
+            </label>
           </div>
+
+          {useTypeConstraints && (
+            <div style={{ marginBottom: 12 }}>
+              <button 
+                style={{ ...builderStyles.smallBtn, marginBottom: 8 }}
+                onClick={() => setShowTypeEditor(!showTypeEditor)}
+              >
+                {showTypeEditor ? '🔒 Hide Types' : '⚙️ Edit Types'}
+              </button>
+              {showTypeEditor && (
+                <CardTypeRequirementsEditor 
+                  requirements={localTypeReqs} 
+                  onChange={setLocalTypeReqs}
+                  compact={true}
+                />
+              )}
+            </div>
+          )}
 
           {generatedDeck.length > 0 ? (
             <>
@@ -1698,6 +2073,278 @@ function DeckBuilder({ cards }) {
             </>
           ) : (
             <p style={{ color: '#666', fontStyle: 'italic' }}>Select cards from the pool to generate a deck.</p>
+          )}
+        </div>
+
+        {/* Suggestions Panel */}
+        <div style={builderStyles.suggestionsPanel}>
+          <h3 style={{ marginTop: 0 }}>💡 Suggested Cards</h3>
+          <p style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
+            Cards that meet your settings (min level {config?.minimumLevel || 13}+, not excluded) with high synergy.
+          </p>
+          
+          {suggestions.length > 0 ? (
+            <>
+              {suggestions.map((card, i) => (
+                <div
+                  key={card.name}
+                  style={{
+                    ...builderStyles.suggestionCard,
+                    borderLeft: card.isMustUse ? '4px solid #4caf50' : card.isHighPriority ? '4px solid #d32f2f' : card.isSecondaryPriority ? '4px solid #ff9800' : '4px solid transparent',
+                  }}
+                  onClick={() => toggleCard(card.name)}
+                  title="Click to add to pool"
+                >
+                  <div>
+                    <strong>{i + 1}. {card.name}</strong>
+                    <div style={{ fontSize: 11, color: '#666' }}>
+                      Lvl {card.isBoosted ? `${card.level}→${card.effectiveLevel}` : card.level} | {card.rarity} | Achv: {card.achievement_lefts}
+                    </div>
+                    <div style={{ fontSize: 10, display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 2 }}>
+                      {card.isMustUse && <span style={{ color: '#fff', background: '#4caf50', padding: '1px 4px', borderRadius: 3 }}>Must-Use</span>}
+                      {card.isHighPriority && <span style={{ color: '#fff', background: '#d32f2f', padding: '1px 4px', borderRadius: 3 }}>★ High</span>}
+                      {card.isSecondaryPriority && <span style={{ color: '#fff', background: '#ff9800', padding: '1px 4px', borderRadius: 3 }}>2nd</span>}
+                      {card.isOwnedHero && <span style={{ color: '#fff', background: '#9c27b0', padding: '1px 4px', borderRadius: 3 }}>👑 Hero</span>}
+                      {card.isBoosted && <span style={{ color: '#fff', background: '#2196f3', padding: '1px 4px', borderRadius: 3 }}>⬆ Boosted</span>}
+                      {card.has_evolution && <span style={{ color: '#fff', background: '#607d8b', padding: '1px 4px', borderRadius: 3 }}>Evo</span>}
+                    </div>
+                  </div>
+                  <div style={builderStyles.suggestionScore}>
+                    {card.suggestionScore}
+                  </div>
+                </div>
+              ))}
+            </>
+          ) : (
+            <p style={{ color: '#999', fontStyle: 'italic' }}>
+              {generatedDeck.length === 0 
+                ? 'Build a deck first to see suggestions.' 
+                : 'No more eligible cards match your settings.'}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Card Types Dashboard - View and edit card type mappings
+// =============================================================================
+function CardTypesDashboard({ allCards }) {
+  const [mappings, setMappings] = useState({});
+  const [types, setTypes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedType, setSelectedType] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [saveStatus, setSaveStatus] = useState(null);
+
+  // All known card names from current data
+  const allCardNames = useMemo(() => {
+    return allCards ? [...new Set(allCards.map(c => c.name))].sort() : [];
+  }, [allCards]);
+
+  // Load card type mappings from API
+  useEffect(() => {
+    fetch(`${API_URL}/api/card-types`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        setMappings(data.mappings || {});
+        setTypes(data.types || []);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Failed to load card types:', err);
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  const handleSaveType = async (cardType, cards) => {
+    setSaveStatus('saving');
+    try {
+      const res = await fetch(`${API_URL}/api/card-types`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cardType, cards }),
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      const data = await res.json();
+      setMappings(data.mappings);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch (err) {
+      setSaveStatus('error');
+      console.error('Save error:', err);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!window.confirm('Reset all card type mappings to defaults?')) return;
+    setSaveStatus('saving');
+    try {
+      const res = await fetch(`${API_URL}/api/card-types`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to reset');
+      const data = await res.json();
+      setMappings(data.mappings);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(null), 2000);
+    } catch (err) {
+      setSaveStatus('error');
+      console.error('Reset error:', err);
+    }
+  };
+
+  const toggleCardInType = (cardName) => {
+    if (!selectedType) return;
+    const currentCards = mappings[selectedType] || [];
+    const newCards = currentCards.includes(cardName)
+      ? currentCards.filter(c => c !== cardName)
+      : [...currentCards, cardName].sort();
+    setMappings(prev => ({ ...prev, [selectedType]: newCards }));
+  };
+
+  if (loading) return <div style={styles.section}><h2>🏷️ Card Types Dashboard</h2><p>Loading...</p></div>;
+  if (error) return <div style={styles.section}><h2>🏷️ Card Types Dashboard</h2><p style={{ color: 'red' }}>Error: {error}</p></div>;
+
+  const filteredCards = searchTerm
+    ? allCardNames.filter(name => name.toLowerCase().includes(searchTerm.toLowerCase()))
+    : allCardNames;
+
+  const typeDisplayNames = {
+    SINGLE_ANTI_AIR: '🎯 Single Anti-Air',
+    SPLASH_ANTI_AIR: '💥 Splash Anti-Air',
+    SMALL_SPELL: '✨ Small Spell',
+    BIG_SPELL: '💣 Big Spell',
+    SPELL_TROOP: '🔮 Spell Troop',
+    TOWER_DEFENDER: '🛡️ Tower Defender',
+    TOWER_DESTROYER: '⚔️ Tower Destroyer',
+    DISTRACTION: '🎭 Distraction',
+    MINI_TANK: '🛡️ Mini Tank',
+    TANK: '🦣 Tank',
+    SWARM: '🐜 Swarm',
+    CYCLE: '🔄 Cycle',
+    BUILDING: '🏗️ Building',
+    AIR_TROOP: '🦅 Air Troop',
+    BRIDGE_SPAM: '⚡ Bridge Spam',
+    CHAMPION: '👑 Champion',
+    OTHERS: '📦 Others',
+  };
+
+  const dashStyles = {
+    container: { display: 'flex', gap: 24, flexWrap: 'wrap' },
+    typeList: { flex: '0 0 220px', background: '#f5f5f5', borderRadius: 8, padding: 12, maxHeight: 600, overflowY: 'auto' },
+    typeItem: { padding: '8px 12px', cursor: 'pointer', borderRadius: 4, marginBottom: 4, background: '#fff', border: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    typeItemActive: { padding: '8px 12px', cursor: 'pointer', borderRadius: 4, marginBottom: 4, background: '#1976d2', color: '#fff', border: '1px solid #1565c0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+    cardCount: { fontSize: 12, padding: '2px 6px', background: 'rgba(0,0,0,0.1)', borderRadius: 10 },
+    cardPanel: { flex: 1, minWidth: 300 },
+    cardGrid: { display: 'flex', flexWrap: 'wrap', gap: 8, maxHeight: 400, overflowY: 'auto', padding: 8, background: '#fafafa', borderRadius: 8, border: '1px solid #ddd' },
+    cardChip: { padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: 13, border: '1px solid #ddd', background: '#fff', transition: 'all 0.2s' },
+    cardChipSelected: { padding: '6px 12px', borderRadius: 16, cursor: 'pointer', fontSize: 13, border: '1px solid #4caf50', background: '#e8f5e9', fontWeight: 'bold', transition: 'all 0.2s' },
+    searchBox: { width: '100%', padding: '8px 12px', marginBottom: 12, borderRadius: 4, border: '1px solid #ddd', fontSize: 14 },
+    header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 },
+    actionBtn: { padding: '8px 16px', borderRadius: 4, cursor: 'pointer', border: 'none', fontWeight: 'bold' },
+  };
+
+  return (
+    <div style={styles.section}>
+      <div style={dashStyles.header}>
+        <h2 style={{ margin: 0 }}>🏷️ Card Types Dashboard</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            style={{ ...dashStyles.actionBtn, background: editMode ? '#f44336' : '#4caf50', color: '#fff' }}
+            onClick={() => setEditMode(!editMode)}
+          >
+            {editMode ? '🔒 Lock Editing' : '✏️ Edit Mode'}
+          </button>
+          <button
+            style={{ ...dashStyles.actionBtn, background: '#ff9800', color: '#fff' }}
+            onClick={handleReset}
+          >
+            ↩️ Reset Defaults
+          </button>
+          {saveStatus === 'saving' && <span style={{ color: '#2196f3' }}>⏳ Saving...</span>}
+          {saveStatus === 'saved' && <span style={{ color: '#4caf50' }}>✓ Saved!</span>}
+          {saveStatus === 'error' && <span style={{ color: '#f44336' }}>✗ Error</span>}
+        </div>
+      </div>
+
+      <div style={dashStyles.container}>
+        {/* Type List */}
+        <div style={dashStyles.typeList}>
+          <h4 style={{ margin: '0 0 12px 0', color: '#666' }}>Card Types</h4>
+          {types.map(type => (
+            <div
+              key={type}
+              style={selectedType === type ? dashStyles.typeItemActive : dashStyles.typeItem}
+              onClick={() => setSelectedType(type)}
+            >
+              <span>{typeDisplayNames[type] || type}</span>
+              <span style={dashStyles.cardCount}>{(mappings[type] || []).length}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Card Panel */}
+        <div style={dashStyles.cardPanel}>
+          {selectedType ? (
+            <>
+              <h3 style={{ margin: '0 0 12px 0' }}>{typeDisplayNames[selectedType] || selectedType}</h3>
+              <p style={{ color: '#666', marginBottom: 12 }}>
+                {(mappings[selectedType] || []).length} cards in this category
+                {editMode && ' — Click cards to add/remove'}
+              </p>
+
+              {editMode && (
+                <>
+                  <input
+                    type="text"
+                    placeholder="Search cards..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    style={dashStyles.searchBox}
+                  />
+                  <div style={{ marginBottom: 12, display: 'flex', gap: 8 }}>
+                    <button
+                      style={{ ...dashStyles.actionBtn, background: '#2196f3', color: '#fff' }}
+                      onClick={() => handleSaveType(selectedType, mappings[selectedType] || [])}
+                    >
+                      💾 Save Changes
+                    </button>
+                  </div>
+                </>
+              )}
+
+              <div style={dashStyles.cardGrid}>
+                {(editMode ? filteredCards : (mappings[selectedType] || [])).map(cardName => {
+                  const isInType = (mappings[selectedType] || []).includes(cardName);
+                  return (
+                    <div
+                      key={cardName}
+                      style={isInType ? dashStyles.cardChipSelected : dashStyles.cardChip}
+                      onClick={() => editMode && toggleCardInType(cardName)}
+                      title={editMode ? (isInType ? 'Click to remove' : 'Click to add') : ''}
+                    >
+                      {cardName}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!editMode && (mappings[selectedType] || []).length === 0 && (
+                <p style={{ color: '#999', fontStyle: 'italic' }}>No cards in this category. Enable Edit Mode to add cards.</p>
+              )}
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: 48, color: '#999' }}>
+              <p style={{ fontSize: 18 }}>← Select a card type to view/edit</p>
+              <p>Each card can belong to multiple types.</p>
+            </div>
           )}
         </div>
       </div>

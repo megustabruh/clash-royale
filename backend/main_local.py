@@ -1,20 +1,25 @@
 # main_local.py - Clash Royale Backend API (Local Development)
 
+import json
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from functools import cmp_to_key
+from pydantic import BaseModel
+from typing import List, Optional
 import os
 
 from clash_royale import (
     Config, DeckSelector, create_comparator, calculate_achievement_lefts,
-    CRCardType, Rarity, HIGH_PRIORITY_UPGRADE_CARDS, SECONDARY_PRIORITY_UPGRADE_CARDS
+    CRCardType, Rarity, HIGH_PRIORITY_UPGRADE_CARDS, SECONDARY_PRIORITY_UPGRADE_CARDS,
+    CARD_TYPE_MAPPINGS, get_cr_card_types
 )
 
 # Local Development API Token
 # You can set CLASH_API_TOKEN environment variable or replace this with your token
 # Get your token from: https://developer.clashroyale.com
-API_TOKEN = os.environ.get("CLASH_API_TOKEN", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjA4OTRjN2FmLWUwZmYtNDM0Yy04ZGVkLTU3Yjg0Yjk2ZjNkZiIsImlhdCI6MTc3ODQyNDIzNSwic3ViIjoiZGV2ZWxvcGVyL2VhYjQ5OTQ3LWNiYjMtZWJlZC1mNzViLTgzNGFlODliMGFmZiIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNS4yMDYuMjkuMTYiXSwidHlwZSI6ImNsaWVudCJ9XX0.FOBrdxHptzi0ol5a3ljawrykFj0ZdEhSJcdhTXJct7XslIRn6Mksi8Ll0032kRuPsenHYAdSCqGnsoKQ4WRRqA")
+# IMPORTANT: The token is IP-restricted. Generate a new token that includes your local public IP.
+API_TOKEN = os.environ.get("CLASH_API_TOKEN", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjIyODk2ODMzLTdjOTktNDM5YS05ZWYyLTE1ZDY5YmViZDEzZSIsImlhdCI6MTc4NDY0Njg4Mywic3ViIjoiZGV2ZWxvcGVyL2VhYjQ5OTQ3LWNiYjMtZWJlZC1mNzViLTgzNGFlODliMGFmZiIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxMjIuMTcyLjgyLjIzMSJdLCJ0eXBlIjoiY2xpZW50In1dfQ.YDDVbUhm9ac-r0rKUCaRGNr4xb5vlJf30j4KJudAO-7N2H3HzpJY5UfEFzPBIsXRB24ZMxrjUm96i9PPpcvzPg")
 
 app = FastAPI(
     title="Clash Royale Backend API",
@@ -36,11 +41,224 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Settings file path (stored alongside main_local.py)
+SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "user_settings.json")
+CARD_TYPES_FILE = os.path.join(os.path.dirname(__file__), "card_type_mappings.json")
+
+# Default settings configuration
+DEFAULT_SETTINGS = {
+    "boostedCards": ["megaminion", "zap", "knight", "giant"],
+    "excludedCards": ["giantbuffer", "mergemaiden"],
+    "minimumLevel": 13,
+    "maxElixir": 33,
+    "kingLevel": 16,
+    "highPriorityCards": ["musketeer", "megaminion", "fireball", "zap", "miner", "cannon", "thelog", "balloon", "knight", "wallbreakers"],
+    "secondaryPriorityCards": ["hogrider", "battleram", "royalhogs", "suspiciousbush", "ramrider"],
+    "mustUseCards": ["hogrider", "battleram", "royalhogs", "suspiciousbush", "ramrider"],
+    "sortPriority": "achievements_rarity_level",
+    "ownedHeroes": ["archerqueen", "goldenknight", "skeletonking", "mightyminer", "monk", "littleprince"],
+    "customSortOrder": [
+        {"field": "achievement_lefts", "direction": "desc", "enabled": True},
+        {"field": "rarity", "direction": "desc", "enabled": True},
+        {"field": "level", "direction": "desc", "enabled": True},
+        {"field": "has_evolution", "direction": "desc", "enabled": True},
+        {"field": "is_hero", "direction": "desc", "enabled": True},
+        {"field": "elixirs", "direction": "desc", "enabled": True},
+    ],
+}
+
+
+class SortCriterion(BaseModel):
+    field: str
+    direction: str = "desc"
+    enabled: bool = True
+
+
+class SettingsModel(BaseModel):
+    boostedCards: List[str]
+    excludedCards: List[str]
+    minimumLevel: int
+    maxElixir: int
+    kingLevel: int
+    highPriorityCards: List[str]
+    secondaryPriorityCards: List[str]
+    mustUseCards: List[str]
+    sortPriority: str = "achievements_rarity_level"
+    ownedHeroes: List[str] = []
+    customSortOrder: Optional[List[SortCriterion]] = None
+
+
+def load_settings():
+    """Load settings from file, return defaults if not found."""
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+                # Merge with defaults to ensure all keys exist
+                return {**DEFAULT_SETTINGS, **saved}
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error loading settings: {e}")
+    return DEFAULT_SETTINGS.copy()
+
+
+def save_settings(settings: dict):
+    """Save settings to file."""
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except IOError as e:
+        print(f"Error saving settings: {e}")
+        return False
+
+
+@app.get("/api/settings")
+def get_settings():
+    """Get current settings."""
+    return JSONResponse(load_settings())
+
+
+@app.post("/api/settings")
+def update_settings(settings: SettingsModel):
+    """Save settings."""
+    settings_dict = settings.model_dump()
+    if save_settings(settings_dict):
+        return JSONResponse({"success": True, "settings": settings_dict})
+    return JSONResponse({"success": False, "error": "Failed to save settings"}, status_code=500)
+
+
+@app.delete("/api/settings")
+def reset_settings():
+    """Reset settings to defaults."""
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            os.remove(SETTINGS_FILE)
+        return JSONResponse({"success": True, "settings": DEFAULT_SETTINGS})
+    except OSError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# Card Type Mappings API
+# =============================================================================
+
+def get_default_card_type_mappings():
+    """Convert CARD_TYPE_MAPPINGS to JSON-serializable format."""
+    return {
+        card_type.name: sorted(list(cards))
+        for card_type, cards in CARD_TYPE_MAPPINGS.items()
+    }
+
+
+def load_card_type_mappings():
+    """Load custom card type mappings from file, or return defaults."""
+    try:
+        if os.path.exists(CARD_TYPES_FILE):
+            with open(CARD_TYPES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error loading card type mappings: {e}")
+    return get_default_card_type_mappings()
+
+
+def save_card_type_mappings(mappings: dict):
+    """Save card type mappings to file."""
+    try:
+        with open(CARD_TYPES_FILE, "w", encoding="utf-8") as f:
+            json.dump(mappings, f, indent=2)
+        return True
+    except IOError as e:
+        print(f"Error saving card type mappings: {e}")
+        return False
+
+
+@app.get("/api/card-types")
+def get_card_type_mappings():
+    """Get all card type mappings."""
+    mappings = load_card_type_mappings()
+    # Get all unique cards from all types
+    all_cards = set()
+    for cards in mappings.values():
+        all_cards.update(cards)
+    return JSONResponse({
+        "mappings": mappings,
+        "types": [t.name for t in CRCardType],
+        "allCards": sorted(list(all_cards))
+    })
+
+
+class CardTypeMappingUpdate(BaseModel):
+    cardType: str
+    cards: List[str]
+
+
+@app.post("/api/card-types")
+def update_card_type_mapping(update: CardTypeMappingUpdate):
+    """Update cards for a specific card type."""
+    mappings = load_card_type_mappings()
+    if update.cardType not in [t.name for t in CRCardType]:
+        return JSONResponse({"success": False, "error": f"Invalid card type: {update.cardType}"}, status_code=400)
+    
+    mappings[update.cardType] = sorted(update.cards)
+    if save_card_type_mappings(mappings):
+        return JSONResponse({"success": True, "mappings": mappings})
+    return JSONResponse({"success": False, "error": "Failed to save mappings"}, status_code=500)
+
+
+class CardTypeAssignment(BaseModel):
+    cardName: str
+    types: List[str]
+
+
+@app.post("/api/card-types/assign")
+def assign_card_types(assignment: CardTypeAssignment):
+    """Assign a card to specific types (add/remove from categories)."""
+    mappings = load_card_type_mappings()
+    valid_types = [t.name for t in CRCardType]
+    
+    # Validate types
+    for t in assignment.types:
+        if t not in valid_types:
+            return JSONResponse({"success": False, "error": f"Invalid card type: {t}"}, status_code=400)
+    
+    # Remove card from all types first, then add to specified types
+    for card_type in mappings:
+        if assignment.cardName in mappings[card_type]:
+            mappings[card_type].remove(assignment.cardName)
+    
+    # Add card to specified types
+    for t in assignment.types:
+        if t not in mappings:
+            mappings[t] = []
+        if assignment.cardName not in mappings[t]:
+            mappings[t].append(assignment.cardName)
+            mappings[t] = sorted(mappings[t])
+    
+    if save_card_type_mappings(mappings):
+        return JSONResponse({"success": True, "mappings": mappings})
+    return JSONResponse({"success": False, "error": "Failed to save mappings"}, status_code=500)
+
+
+@app.delete("/api/card-types")
+def reset_card_type_mappings():
+    """Reset card type mappings to defaults."""
+    try:
+        if os.path.exists(CARD_TYPES_FILE):
+            os.remove(CARD_TYPES_FILE)
+        return JSONResponse({"success": True, "mappings": get_default_card_type_mappings()})
+    except OSError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
 def get_config():
+    settings = load_settings()
     return Config(
         token=API_TOKEN,
-        boosted_cards=("megaminion", "zap", "knight", "giant"),
-        king_level=16
+        boosted_cards=tuple(settings.get("boostedCards", [])),
+        excluded_cards=tuple(settings.get("excludedCards", [])),
+        minimum_level=settings.get("minimumLevel", 13),
+        max_elixir=settings.get("maxElixir", 33),
+        king_level=settings.get("kingLevel", 16)
     )
 
 def card_to_dict(c):
@@ -331,11 +549,17 @@ def get_clan_war_custom(selector):
             slots_left = 8 - len(decks[deck_idx])
             min_card_elixir = max(1, 31 - current_elixir - (slots_left - 1) * 9)
             max_card_elixir = min(9, 33 - current_elixir - (slots_left - 1) * 1)
-            deck_types = {c.clash_royale_card_type for c in decks[deck_idx] if c.clash_royale_card_type}
+            # Get all types from deck cards
+            deck_types = set()
+            for c in decks[deck_idx]:
+                if c.clash_royale_card_types:
+                    deck_types.update(c.clash_royale_card_types)
 
             added = False
             for card in remaining:
-                if min_card_elixir <= card.elixirs <= max_card_elixir and card.clash_royale_card_type not in deck_types:
+                # Check if card shares any type with deck
+                card_types = set(card.clash_royale_card_types) if card.clash_royale_card_types else set()
+                if min_card_elixir <= card.elixirs <= max_card_elixir and not card_types.intersection(deck_types):
                     decks[deck_idx].append(card)
                     remaining.remove(card)
                     used_cards.add(card.name)

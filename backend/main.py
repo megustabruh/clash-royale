@@ -425,11 +425,17 @@ def get_clan_war_custom(selector):
             slots_left = 8 - len(decks[deck_idx])
             min_card_elixir = max(1, 31 - current_elixir - (slots_left - 1) * 9)
             max_card_elixir = min(9, 33 - current_elixir - (slots_left - 1) * 1)
-            deck_types = {c.clash_royale_card_type for c in decks[deck_idx] if c.clash_royale_card_type}
+            # Get all types from deck cards
+            deck_types = set()
+            for c in decks[deck_idx]:
+                if c.clash_royale_card_types:
+                    deck_types.update(c.clash_royale_card_types)
 
             added = False
             for card in remaining:
-                if min_card_elixir <= card.elixirs <= max_card_elixir and card.clash_royale_card_type not in deck_types:
+                # Check if card shares any type with deck
+                card_types = set(card.clash_royale_card_types) if card.clash_royale_card_types else set()
+                if min_card_elixir <= card.elixirs <= max_card_elixir and not card_types.intersection(deck_types):
                     decks[deck_idx].append(card)
                     remaining.remove(card)
                     used_cards.add(card.name)
