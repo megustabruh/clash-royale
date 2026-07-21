@@ -187,12 +187,27 @@ function analyzeAllData(rawCards, config) {
 
   const cardMap = Object.fromEntries(cards.map(c => [c.name, c]));
 
-  // Step 2: Achievement stats by card type
+  // Step 2: Achievement stats by card type (with card details for expandable view)
   const achievementStats = {};
+  const cardsByType = {};  // Track which cards belong to each type
   for (const card of cards) {
-    if (card.cr_card_type && card.achievement_lefts > 0) {
-      achievementStats[card.cr_card_type] = (achievementStats[card.cr_card_type] || 0) + card.achievement_lefts;
+    if (card.cr_card_types && card.cr_card_types.length > 0 && card.achievement_lefts > 0) {
+      for (const cardType of card.cr_card_types) {
+        achievementStats[cardType] = (achievementStats[cardType] || 0) + card.achievement_lefts;
+        if (!cardsByType[cardType]) cardsByType[cardType] = [];
+        cardsByType[cardType].push({
+          name: card.name,
+          achievement_lefts: card.achievement_lefts,
+          level: card.level,
+          rarity: card.rarity,
+          all_types: card.cr_card_types,
+        });
+      }
     }
+  }
+  // Sort cards within each type by achievements descending
+  for (const type in cardsByType) {
+    cardsByType[type].sort((a, b) => b.achievement_lefts - a.achievement_lefts);
   }
   const sortedStats = Object.fromEntries(
     Object.entries(achievementStats).sort((a, b) => b[1] - a[1])
@@ -293,6 +308,7 @@ function analyzeAllData(rawCards, config) {
     normal_deck: normalDeck,
     clan_war_decks: clanWarDecks,
     achievement_stats: sortedStats,
+    cards_by_type: cardsByType,  // For expandable achievement stats view
     upgrade_recommendations: {
       current_total: currentTotal,
       max_total: maxTotal,
@@ -314,13 +330,16 @@ function buildClanWarDecksWithConstraints(cards, config, priorityComparator) {
 
   const eligibleCards = cards.filter(meetsLevelReq);
   
+  // Helper to check if card has a specific type
+  const hasCardType = (card, type) => card.cr_card_types && card.cr_card_types.includes(type);
+  
   // Pre-sort cards by type for role assignment
-  const bigSpells = eligibleCards.filter(c => c.cr_card_type === 'BIG_SPELL').sort(priorityComparator);
-  const smallSpells = eligibleCards.filter(c => c.cr_card_type === 'SMALL_SPELL').sort(priorityComparator);
-  const singleAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SINGLE_ANTI_AIR').sort(priorityComparator);
-  const splashAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SPLASH_ANTI_AIR').sort(priorityComparator);
-  const towerDestroyers = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DESTROYER').sort(priorityComparator);
-  const towerDefenders = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DEFENDER').sort(priorityComparator);
+  const bigSpells = eligibleCards.filter(c => hasCardType(c, 'BIG_SPELL')).sort(priorityComparator);
+  const smallSpells = eligibleCards.filter(c => hasCardType(c, 'SMALL_SPELL')).sort(priorityComparator);
+  const singleAntiAir = eligibleCards.filter(c => hasCardType(c, 'SINGLE_ANTI_AIR')).sort(priorityComparator);
+  const splashAntiAir = eligibleCards.filter(c => hasCardType(c, 'SPLASH_ANTI_AIR')).sort(priorityComparator);
+  const towerDestroyers = eligibleCards.filter(c => hasCardType(c, 'TOWER_DESTROYER')).sort(priorityComparator);
+  const towerDefenders = eligibleCards.filter(c => hasCardType(c, 'TOWER_DEFENDER')).sort(priorityComparator);
   
   // Role types that each deck must have exactly one of
   const roleTypes = new Set(['BIG_SPELL', 'SMALL_SPELL', 'SINGLE_ANTI_AIR', 'SPLASH_ANTI_AIR', 'TOWER_DESTROYER', 'TOWER_DEFENDER']);
@@ -363,12 +382,33 @@ function buildClanWarDecksWithConstraints(cards, config, priorityComparator) {
   }
 
   // Phase 2: Fill remaining 2 slots with other card types (not role types)
+  // Helper to check if card has any role type
+  const hasRoleType = (card) => card.cr_card_types && card.cr_card_types.some(t => roleTypes.has(t));
   const remaining = eligibleCards
-    .filter(c => !usedCards.has(c.name) && !roleTypes.has(c.cr_card_type))
+    .filter(c => !usedCards.has(c.name) && !hasRoleType(c))
     .sort(priorityComparator);
 
   const minTotalElixir = config.minElixir || 31;
   const maxTotalElixir = config.maxElixir || 33;
+
+  // Helper to get all card types from a deck
+  const getDeckTypes = (deck) => {
+    const types = new Set();
+    for (const card of deck) {
+      if (card.cr_card_types) {
+        for (const t of card.cr_card_types) {
+          types.add(t);
+        }
+      }
+    }
+    return types;
+  };
+  
+  // Helper to check if card shares any type with deck
+  const sharesTypeWithDeck = (card, deckTypes) => {
+    if (!card.cr_card_types) return false;
+    return card.cr_card_types.some(t => deckTypes.has(t));
+  };
 
   for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
     while (decks[deckIdx].length < 8 && remaining.length > 0) {
@@ -381,7 +421,7 @@ function buildClanWarDecksWithConstraints(cards, config, priorityComparator) {
       const minCardElixir = Math.max(1, minTotalElixir - currentElixir - (slotsLeft - 1) * 9);
       const maxCardElixir = Math.min(9, maxTotalElixir - currentElixir - (slotsLeft - 1) * 1);
       
-      const deckTypes = new Set(decks[deckIdx].map(c => c.cr_card_type).filter(Boolean));
+      const deckTypes = getDeckTypes(decks[deckIdx]);
       
       const canAddCard = (card) => {
         if (isHeroOrChampion(card) && heroCount >= 2) return false;
@@ -408,7 +448,7 @@ function buildClanWarDecksWithConstraints(cards, config, priorityComparator) {
       if (!added) {
         for (let i = 0; i < remaining.length; i++) {
           const card = remaining[i];
-          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && !deckTypes.has(card.cr_card_type) && canAddCard(card)) {
+          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && !sharesTypeWithDeck(card, deckTypes) && canAddCard(card)) {
             decks[deckIdx].push(card);
             remaining.splice(i, 1);
             usedCards.add(card.name);
@@ -473,13 +513,16 @@ function buildClanWarCustomDecks(cards, config) {
 
   const eligibleCards = cards.filter(meetsLevelReq);
   
+  // Helper to check if card has a specific type
+  const hasCardType = (card, type) => card.cr_card_types && card.cr_card_types.includes(type);
+  
   // Pre-sort cards by type for role assignment
-  const bigSpells = eligibleCards.filter(c => c.cr_card_type === 'BIG_SPELL').sort(priorityComparator);
-  const smallSpells = eligibleCards.filter(c => c.cr_card_type === 'SMALL_SPELL').sort(priorityComparator);
-  const singleAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SINGLE_ANTI_AIR').sort(priorityComparator);
-  const splashAntiAir = eligibleCards.filter(c => c.cr_card_type === 'SPLASH_ANTI_AIR').sort(priorityComparator);
-  const towerDestroyers = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DESTROYER').sort(priorityComparator);
-  const towerDefenders = eligibleCards.filter(c => c.cr_card_type === 'TOWER_DEFENDER').sort(priorityComparator);
+  const bigSpells = eligibleCards.filter(c => hasCardType(c, 'BIG_SPELL')).sort(priorityComparator);
+  const smallSpells = eligibleCards.filter(c => hasCardType(c, 'SMALL_SPELL')).sort(priorityComparator);
+  const singleAntiAir = eligibleCards.filter(c => hasCardType(c, 'SINGLE_ANTI_AIR')).sort(priorityComparator);
+  const splashAntiAir = eligibleCards.filter(c => hasCardType(c, 'SPLASH_ANTI_AIR')).sort(priorityComparator);
+  const towerDestroyers = eligibleCards.filter(c => hasCardType(c, 'TOWER_DESTROYER')).sort(priorityComparator);
+  const towerDefenders = eligibleCards.filter(c => hasCardType(c, 'TOWER_DEFENDER')).sort(priorityComparator);
   
   // Role types that each deck must have exactly one of
   const roleTypes = new Set(['BIG_SPELL', 'SMALL_SPELL', 'SINGLE_ANTI_AIR', 'SPLASH_ANTI_AIR', 'TOWER_DESTROYER', 'TOWER_DEFENDER']);
@@ -527,10 +570,23 @@ function buildClanWarCustomDecks(cards, config) {
     }
   }
 
+  // Helper to get all card types from a deck
+  const getDeckTypes = (deck) => {
+    const types = new Set();
+    for (const card of deck) {
+      if (card.cr_card_types) {
+        for (const t of card.cr_card_types) {
+          types.add(t);
+        }
+      }
+    }
+    return types;
+  };
+
   // Phase 2: Add required role cards to each deck
   // Each deck needs: 1 big spell, 1 small spell, 1 single anti-air, 1 splash anti-air, 1 tower destroyer, 1 tower defender
   for (let deckIdx = 0; deckIdx < 4; deckIdx++) {
-    const deckTypes = new Set(decks[deckIdx].map(c => c.cr_card_type).filter(Boolean));
+    const deckTypes = getDeckTypes(decks[deckIdx]);
     
     // Add big spell (if deck doesn't already have one from must-use)
     if (!deckTypes.has('BIG_SPELL')) {
@@ -564,9 +620,17 @@ function buildClanWarCustomDecks(cards, config) {
   }
 
   // Phase 3: Fill remaining 2 slots with other card types (not role types)
+  // Helper to check if card has any role type
+  const hasRoleType = (card) => card.cr_card_types && card.cr_card_types.some(t => roleTypes.has(t));
+  // Helper to check if card shares any type with deck
+  const sharesTypeWithDeck = (card, deckTypes) => {
+    if (!card.cr_card_types) return false;
+    return card.cr_card_types.some(t => deckTypes.has(t));
+  };
+  
   // Exclude role types to ensure variety in deck composition
   const remaining = eligibleCards
-    .filter(c => !usedCards.has(c.name) && !roleTypes.has(c.cr_card_type))
+    .filter(c => !usedCards.has(c.name) && !hasRoleType(c))
     .sort(priorityComparator);
 
   const minTotalElixir = config.minElixir || 31;
@@ -584,7 +648,7 @@ function buildClanWarCustomDecks(cards, config) {
       const minCardElixir = Math.max(1, minTotalElixir - currentElixir - (slotsLeft - 1) * 9);
       const maxCardElixir = Math.min(9, maxTotalElixir - currentElixir - (slotsLeft - 1) * 1);
       
-      const deckTypes = new Set(decks[deckIdx].map(c => c.cr_card_type).filter(Boolean));
+      const deckTypes = getDeckTypes(decks[deckIdx]);
       
       // Helper to check if a card can be added (respecting hero limit)
       const canAddCard = (card) => {
@@ -612,7 +676,7 @@ function buildClanWarCustomDecks(cards, config) {
       if (!added) {
         for (let i = 0; i < remaining.length; i++) {
           const card = remaining[i];
-          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && !deckTypes.has(card.cr_card_type) && canAddCard(card)) {
+          if (card.elixirs >= minCardElixir && card.elixirs <= maxCardElixir && !sharesTypeWithDeck(card, deckTypes) && canAddCard(card)) {
             decks[deckIdx].push(card);
             remaining.splice(i, 1);
             usedCards.add(card.name);
@@ -1042,7 +1106,7 @@ function App() {
       {activeTab === 'cards' && <AllCardsTable cards={data.cards} />}
       {activeTab === 'normal_deck' && <NormalDeck deck={data.normal_deck} cards={data.cards} sortPriority={data.sort_priority} />}
       {activeTab === 'clan_war' && <ClanWarDecks decks={data.clan_war_decks} sortPriority={data.sort_priority} />}
-      {activeTab === 'achievement_stats' && <AchievementStats stats={data.achievement_stats} />}
+      {activeTab === 'achievement_stats' && <AchievementStats stats={data.achievement_stats} cardsByType={data.cards_by_type} />}
       {activeTab === 'upgrade_recs' && <UpgradeRecommendations data={data.upgrade_recommendations} />}
       {activeTab === 'upgrade_priority' && <UpgradePriority cards={data.upgrade_priority} />}
       {activeTab === 'upgrade_rarity' && <UpgradeByRarity data={data.upgrade_by_rarity} />}
@@ -1082,7 +1146,7 @@ function AllCardsTable({ cards }) {
       case 'rarity': aVal = rarityOrder[a.rarity] || 0; bVal = rarityOrder[b.rarity] || 0; break;
       case 'elixir': aVal = a.elixirs; bVal = b.elixirs; break;
       case 'achievements': aVal = a.achievement_lefts; bVal = b.achievement_lefts; break;
-      case 'type': aVal = a.cr_card_type || ''; bVal = b.cr_card_type || ''; break;
+      case 'type': aVal = (a.cr_card_types || []).join(','); bVal = (b.cr_card_types || []).join(','); break;
       case 'evo': aVal = a.has_evolution ? 1 : 0; bVal = b.has_evolution ? 1 : 0; break;
       case 'priority': 
         aVal = a.is_high_priority ? 2 : a.is_secondary_priority ? 1 : 0;
@@ -1131,7 +1195,7 @@ function AllCardsTable({ cards }) {
                 <td style={styles.td}>{card.rarity}</td>
                 <td style={styles.td}>{card.elixirs}</td>
                 <td style={styles.td}>{card.achievement_lefts}</td>
-                <td style={styles.td}>{card.cr_card_type || '-'}</td>
+                <td style={styles.td}>{card.cr_card_types && card.cr_card_types.length > 0 ? card.cr_card_types.join(', ') : '-'}</td>
                 <td style={styles.td}>{card.has_evolution ? '✓' : ''}</td>
                 <td style={styles.td}>
                   {card.is_hero_owned && <span style={styles.heroOwned}>OWNED</span>}
@@ -1202,21 +1266,86 @@ function ClanWarDecks({ decks, sortPriority }) {
   );
 }
 
-function AchievementStats({ stats }) {
+function AchievementStats({ stats, cardsByType }) {
+  const [expandedTypes, setExpandedTypes] = useState({});
+
   if (!stats || typeof stats !== 'object') {
     return <div style={styles.section}><h2>Achievement Stats</h2><p>No data available</p></div>;
   }
+
+  const toggleExpand = (type) => {
+    setExpandedTypes(prev => ({ ...prev, [type]: !prev[type] }));
+  };
+
   const values = Object.values(stats);
   const maxValue = values.length > 0 ? Math.max(...values) : 1;
+  const totalAchievements = values.reduce((sum, v) => sum + v, 0);
+
+  const typeStyles = {
+    container: { marginBottom: 12, border: '1px solid #e0e0e0', borderRadius: 8, overflow: 'hidden' },
+    header: { display: 'flex', alignItems: 'center', padding: '12px 16px', cursor: 'pointer', background: '#fafafa', gap: 12 },
+    expandIcon: { fontSize: 14, width: 20, transition: 'transform 0.2s' },
+    typeLabel: { flex: '0 0 180px', fontWeight: 'bold', color: '#333' },
+    barContainer: { flex: 1, background: '#e8e8e8', borderRadius: 4, height: 24, position: 'relative' },
+    bar: { height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #4caf50, #8bc34a)', transition: 'width 0.3s' },
+    count: { position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontWeight: 'bold', color: '#333' },
+    cardCount: { fontSize: 12, color: '#666', marginLeft: 8 },
+    cardList: { background: '#fff', padding: 12, borderTop: '1px solid #e0e0e0' },
+    cardRow: { display: 'flex', alignItems: 'center', padding: '6px 8px', borderRadius: 4, gap: 12 },
+    cardName: { flex: '1 1 150px', fontWeight: 500 },
+    cardAchv: { flex: '0 0 60px', textAlign: 'center', background: '#e3f2fd', padding: '2px 8px', borderRadius: 4, fontSize: 12 },
+    cardLevel: { flex: '0 0 50px', textAlign: 'center', fontSize: 12, color: '#666' },
+    cardRarity: { flex: '0 0 80px', fontSize: 11, textTransform: 'uppercase', color: '#888' },
+    cardTypes: { flex: '0 0 200px', fontSize: 11, color: '#999' },
+  };
+
   return (
     <div style={styles.section}>
       <h2>Achievements Left by Card Type</h2>
-      {Object.entries(stats).map(([type, count]) => (
-        <div key={type} style={styles.statBar}>
-          <span style={styles.statLabel}>{type}</span>
-          <div style={{ ...styles.statValue, width: `${(count / maxValue) * 300}px` }}>{count}</div>
-        </div>
-      ))}
+      <p style={{ color: '#666', marginBottom: 16 }}>
+        Total: <strong>{totalAchievements}</strong> achievements across all types.
+        <span style={{ fontSize: 12, marginLeft: 8 }}>(Cards with multiple types are counted in each category)</span>
+      </p>
+      
+      {Object.entries(stats).map(([type, count]) => {
+        const cardsForType = cardsByType?.[type] || [];
+        const isExpanded = expandedTypes[type];
+        
+        return (
+          <div key={type} style={typeStyles.container}>
+            <div style={typeStyles.header} onClick={() => toggleExpand(type)}>
+              <span style={{ ...typeStyles.expandIcon, transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>▶</span>
+              <span style={typeStyles.typeLabel}>{type.replace(/_/g, ' ')}</span>
+              <div style={typeStyles.barContainer}>
+                <div style={{ ...typeStyles.bar, width: `${(count / maxValue) * 100}%` }} />
+                <span style={typeStyles.count}>{count}</span>
+              </div>
+              <span style={typeStyles.cardCount}>({cardsForType.length} cards)</span>
+            </div>
+            
+            {isExpanded && cardsForType.length > 0 && (
+              <div style={typeStyles.cardList}>
+                <div style={{ ...typeStyles.cardRow, background: '#f5f5f5', fontWeight: 'bold', fontSize: 12 }}>
+                  <span style={typeStyles.cardName}>Card Name</span>
+                  <span style={typeStyles.cardAchv}>Achv</span>
+                  <span style={typeStyles.cardLevel}>Lvl</span>
+                  <span style={typeStyles.cardRarity}>Rarity</span>
+                  <span style={typeStyles.cardTypes}>All Types</span>
+                </div>
+                {cardsForType.map((card, idx) => (
+                  <div key={card.name} style={{ ...typeStyles.cardRow, background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                    <span style={typeStyles.cardName}>{card.name}</span>
+                    <span style={typeStyles.cardAchv}>{card.achievement_lefts}</span>
+                    <span style={typeStyles.cardLevel}>{card.level}</span>
+                    <span style={typeStyles.cardRarity}>{card.rarity}</span>
+                    <span style={typeStyles.cardTypes}>{card.all_types?.join(', ') || '-'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1394,7 +1523,7 @@ function ClanWarCustom({ decks, sortPriority }) {
                   <td style={styles.td}>{card.level}</td>
                   <td style={styles.td}>{card.achievement_lefts}</td>
                   <td style={styles.td}>{card.elixirs}</td>
-                  <td style={styles.td}>{card.cr_card_type || '-'}</td>
+                  <td style={styles.td}>{card.cr_card_types && card.cr_card_types.length > 0 ? card.cr_card_types.join(', ') : '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -1448,12 +1577,17 @@ function DeckBuilder({ cards }) {
   const avgElixir = generatedDeck.length > 0 ? (totalElixir / generatedDeck.length).toFixed(1) : 0;
   const totalAchievements = generatedDeck.reduce((sum, c) => sum + c.achievement_lefts, 0);
 
-  // Group cards by type for easier selection
+  // Group cards by type for easier selection (cards can appear in multiple groups)
   const cardsByType = {};
   for (const card of filteredCards) {
-    const type = card.cr_card_type || 'OTHER';
-    if (!cardsByType[type]) cardsByType[type] = [];
-    cardsByType[type].push(card);
+    const types = card.cr_card_types && card.cr_card_types.length > 0 ? card.cr_card_types : ['OTHER'];
+    for (const type of types) {
+      if (!cardsByType[type]) cardsByType[type] = [];
+      // Only add card once per type group
+      if (!cardsByType[type].find(c => c.name === card.name)) {
+        cardsByType[type].push(card);
+      }
+    }
   }
 
   const builderStyles = {
@@ -1556,7 +1690,7 @@ function DeckBuilder({ cards }) {
                       <td style={styles.td}>{card.level}</td>
                       <td style={styles.td}>{card.achievement_lefts}</td>
                       <td style={styles.td}>{card.elixirs}</td>
-                      <td style={styles.td}>{card.cr_card_type || '-'}</td>
+                      <td style={styles.td}>{card.cr_card_types && card.cr_card_types.length > 0 ? card.cr_card_types.join(', ') : '-'}</td>
                     </tr>
                   ))}
                 </tbody>

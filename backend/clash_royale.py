@@ -67,7 +67,7 @@ class Card:
     level: int = 0
     temp_level: int = 0
     card_type: Optional[CardType] = None
-    clash_royale_card_type: Optional[CRCardType] = None
+    clash_royale_card_types: List[CRCardType] = None  # Supports multiple card types
     rarity: Optional[Rarity] = None
     elixirs: int = 0
     has_evolution: bool = False
@@ -76,10 +76,15 @@ class Card:
     achievement_lefts: int = 0
     is_hero: bool = False
 
+    def __post_init__(self):
+        if self.clash_royale_card_types is None:
+            self.clash_royale_card_types = []
+
     def __str__(self) -> str:
+        types_str = ','.join(t.name for t in self.clash_royale_card_types) if self.clash_royale_card_types else 'N/A'
         return (
             f"Card[{self.name}, lvl={self.level}, temp={self.temp_level}, "
-            f"badge={self.badge_level}, type={self.clash_royale_card_type.name if self.clash_royale_card_type else 'N/A'}, "
+            f"badge={self.badge_level}, types=[{types_str}], "
             f"achv={self.achievement_lefts}, rarity={self.rarity.name if self.rarity else 'N/A'}, "
             f"elixir={self.elixirs}, evo={self.has_evolution}]"
         )
@@ -109,16 +114,17 @@ class Config:
 # =============================================================================
 # Card Type Mappings (Using Sets for O(1) Lookup)
 # =============================================================================
+# Cards can appear in multiple categories based on their abilities
 CARD_TYPE_MAPPINGS: Dict[CRCardType, frozenset] = {
     CRCardType.SINGLE_ANTI_AIR: frozenset([
         "flyingmachine", "musketeer", "minions", "dartgoblin", "minionhorde",
         "threemusketeers", "firecracker", "wizard", "archerqueen", "phoenix",
-        "goblinstein", "motherwitch", "littleprince"
+        "goblinstein", "motherwitch", "littleprince", "electrowizard", "archers"
     ]),
     CRCardType.SPLASH_ANTI_AIR: frozenset([
         "babydragon", "princess", "magicarcher", "witch", "megaminion",
         "skeletondragons", "executioner", "firecracker", "wizard", "hunter",
-        "goblindemolisher", "sparky"
+        "goblindemolisher", "sparky", "icewizard", "bowler"
     ]),
     CRCardType.SMALL_SPELL: frozenset([
         "void", "rage", "goblincurse", "giantsnowball", "arrows", "thelog",
@@ -130,32 +136,43 @@ CARD_TYPE_MAPPINGS: Dict[CRCardType, frozenset] = {
     CRCardType.SPELL_TROOP: frozenset([
         "monk", "healspirit", "electrospirit", "firespirit", "icewizard",
         "graveyard", "electrodragon", "zappies", "electrowizard", "lumberjack",
-        "infernodragon"
+        "infernodragon", "witch", "nightwitch", "motherwitch", "battlehealer",
+        "spiritempress", "electrogiant", "runegiant"
     ]),
     CRCardType.TOWER_DEFENDER: frozenset([
         "cannon", "tesla", "infernotower", "furnace", "tombstone", "goblinhut",
         "barbarianhut", "bombtower", "goblincage", "elitebarbarians", "bowler",
-        "pekka", "megaknight"
+        "pekka", "megaknight", "monk", "fisherman", "executioner", "cannoncart",
+         "mortar", "x-bow", "giantskeleton"
     ]),
     CRCardType.TOWER_DESTROYER: frozenset([
-        "ramrider", "goblingiant", "balloon", "mortar", "x-bow", "giant",
+        "ramrider", "goblingiant", "balloon", "giant",
         "royalgiant", "electrogiant", "wallbreakers", "hogrider", "golem",
-        "battleram", "lavahound", "royalhogs", "elixirgolem"
+        "battleram", "lavahound", "royalhogs", "elixirgolem",  "goblindrill", "magicarcher", "skeletonbarrel"
     ]),
     CRCardType.DISTRACTION: frozenset([
         "goblinbarrel", "archers", "goblindrill", "icespirit", "skeletonking",
         "skeletonarmy", "barbarians", "goblins", "goblingang", "speargoblins",
-        "guards", "skeletonbarrel", "bomber", "skeletons", "bats"
+        "guards", "skeletonbarrel", "bomber", "skeletons", "bats", "bandit",
+        "miner", "royalghost", "phoenix", "wallbreakers", "royalhogs",
+        "hogrider", "lavahound", "ronin"
     ]),
     CRCardType.MINI_TANK: frozenset([
         "speargoblins", "rascals", "icegolem", "goldenknight", "prince",
         "darkprince", "bandit", "minipekka", "fisherman", "battlehealer",
-        "royalghost", "knight", "valkyrie", "miner", "mightyminer", "spiritempress"
+        "royalghost", "knight", "valkyrie", "miner", "mightyminer", "spiritempress",
+        "hunter", "megaknight", "pekka", "skeletonking", "lumberjack",
+        "battleram", "ramrider", "goblingiant", "golem", "elixirgolem",
+        "giant", "royalgiant", "nightwitch", "cannoncart", "giantskeleton",
+        "runegiant", "ronin"
     ]),
     CRCardType.OTHERS: frozenset([
-        "mirror", "giantskeleton", "royalrecruits", "nightwitch", "cannoncart",
-        "elixircollector", "goblinmachine", "bossbandit", "suspiciousbush",
-        "berserker", "runegiant", "clone"
+        "mirror", "royalrecruits", "elixircollector", "goblinmachine",
+        "bossbandit", "suspiciousbush", "berserker", "clone",
+        "sparky", "prince", "darkprince", "miner", "goblinbarrel",
+        "graveyard", "elitebarbarians", "infernodragon", "goldenknight",
+        "archerqueen", "mightyminer", "littleprince",
+        "threemusketeers"
     ]),
 }
 
@@ -221,12 +238,13 @@ TEN_ACHIEVEMENT_CARDS: Dict[Rarity, frozenset] = {
 # =============================================================================
 # Helper Functions
 # =============================================================================
-def get_cr_card_type(name: str) -> Optional[CRCardType]:
-    """Get the CR card type for a card name. O(1) lookup."""
+def get_cr_card_types(name: str) -> List[CRCardType]:
+    """Get all CR card types for a card name. Returns list of matching types."""
+    types = []
     for card_type, cards in CARD_TYPE_MAPPINGS.items():
         if name in cards:
-            return card_type
-    return None
+            types.append(card_type)
+    return types
 
 
 def get_badge_to_card_name(badge_name: str) -> str:
@@ -417,7 +435,7 @@ class DeckSelector:
             card.count = item.get("count", 0)
             card.id = item.get("id", 0)
             card.has_evolution = item.get("maxEvolutionLevel", 0) == 1
-            card.clash_royale_card_type = get_cr_card_type(card_name)
+            card.clash_royale_card_types = get_cr_card_types(card_name)
 
         # Remove excluded cards
         self.cards = [c for c in self.cards if c.name not in self.config.excluded_cards]
@@ -519,17 +537,17 @@ class DeckSelector:
             card = None
             if self.config.seven_x_elixir:
                 for c in cards:
-                    if c.clash_royale_card_type == CRCardType.BIG_SPELL:
+                    if CRCardType.BIG_SPELL in c.clash_royale_card_types:
                         card = c
                         break
 
             card = card or cards[0]
             selected.append(card)
 
-            if card.clash_royale_card_type:
-                used_types.add(card.clash_royale_card_type)
+            if card.clash_royale_card_types:
+                used_types.update(card.clash_royale_card_types)
 
-            cards = [c for c in cards if c.clash_royale_card_type not in used_types]
+            cards = [c for c in cards if not any(t in used_types for t in c.clash_royale_card_types)]
 
         # Phase 2: Fill remaining slots with elixir combinations
         total_elixir = sum(c.elixirs for c in selected)
@@ -642,10 +660,9 @@ class DeckSelector:
         elif deck_type == 8:
             stats: Dict[CRCardType, int] = {}
             for card in self.cards:
-                if card.clash_royale_card_type and card.achievement_lefts > 0:
-                    stats[card.clash_royale_card_type] = (
-                        stats.get(card.clash_royale_card_type, 0) + card.achievement_lefts
-                    )
+                if card.clash_royale_card_types and card.achievement_lefts > 0:
+                    for card_type in card.clash_royale_card_types:
+                        stats[card_type] = stats.get(card_type, 0) + card.achievement_lefts
 
             print("\nAchievements left by card type:")
             for card_type, count in sorted(stats.items(), key=lambda x: -x[1]):

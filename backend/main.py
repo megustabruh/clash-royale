@@ -144,7 +144,7 @@ def card_to_dict(c):
         "level": c.level,
         "temp_level": c.temp_level,
         "card_type": c.card_type.name if c.card_type else None,
-        "cr_card_type": c.clash_royale_card_type.name if c.clash_royale_card_type else None,
+        "cr_card_types": [t.name for t in c.clash_royale_card_types] if c.clash_royale_card_types else [],
         "rarity": c.rarity.name if c.rarity else None,
         "elixirs": c.elixirs,
         "has_evolution": c.has_evolution,
@@ -240,9 +240,10 @@ def get_achievement_stats(selector):
     """Option 8: Achievement stats by card type."""
     stats = {}
     for card in selector.cards:
-        if card.clash_royale_card_type and card.achievement_lefts > 0:
-            type_name = card.clash_royale_card_type.name
-            stats[type_name] = stats.get(type_name, 0) + card.achievement_lefts
+        if card.clash_royale_card_types and card.achievement_lefts > 0:
+            for card_type in card.clash_royale_card_types:
+                type_name = card_type.name
+                stats[type_name] = stats.get(type_name, 0) + card.achievement_lefts
     return dict(sorted(stats.items(), key=lambda x: -x[1]))
 
 
@@ -382,9 +383,9 @@ def get_clan_war_custom(selector):
         return effective_lvl >= min_lvl
 
     eligible_cards = [c for c in selector.cards if meets_level_req(c)]
-    big_spells = sorted([c for c in eligible_cards if c.clash_royale_card_type == CRCardType.BIG_SPELL], key=lambda c: -c.achievement_lefts)
-    small_spells = sorted([c for c in eligible_cards if c.clash_royale_card_type == CRCardType.SMALL_SPELL], key=lambda c: -c.achievement_lefts)
-    tower_defenders = sorted([c for c in eligible_cards if c.clash_royale_card_type == CRCardType.TOWER_DEFENDER], key=lambda c: -c.achievement_lefts)
+    big_spells = sorted([c for c in eligible_cards if CRCardType.BIG_SPELL in c.clash_royale_card_types], key=lambda c: -c.achievement_lefts)
+    small_spells = sorted([c for c in eligible_cards if CRCardType.SMALL_SPELL in c.clash_royale_card_types], key=lambda c: -c.achievement_lefts)
+    tower_defenders = sorted([c for c in eligible_cards if CRCardType.TOWER_DEFENDER in c.clash_royale_card_types], key=lambda c: -c.achievement_lefts)
 
     must_use_distribution = [[0], [1], [2], [3, 4]]
     decks = [[], [], [], []]
