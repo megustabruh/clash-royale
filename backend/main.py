@@ -11,7 +11,8 @@ from typing import List, Optional
 
 from clash_royale import (
     Config, DeckSelector, create_comparator, calculate_achievement_lefts,
-    CRCardType, Rarity, HIGH_PRIORITY_UPGRADE_CARDS, SECONDARY_PRIORITY_UPGRADE_CARDS
+    CRCardType, Rarity, HIGH_PRIORITY_UPGRADE_CARDS, SECONDARY_PRIORITY_UPGRADE_CARDS,
+    CARD_TYPE_MAPPINGS
 )
 
 # API Token for EC2 IP
@@ -29,6 +30,7 @@ app.add_middleware(
 
 # Settings file path (stored alongside main.py)
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "user_settings.json")
+CARD_TYPES_FILE = os.path.join(os.path.dirname(__file__), "card_type_mappings.json")
 
 # Default settings configuration
 DEFAULT_SETTINGS = {
@@ -119,6 +121,118 @@ def reset_settings():
         if os.path.exists(SETTINGS_FILE):
             os.remove(SETTINGS_FILE)
         return JSONResponse({"success": True, "settings": DEFAULT_SETTINGS})
+    except OSError as e:
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
+
+# =============================================================================
+# Card Type Mappings API
+# =============================================================================
+
+def get_default_card_type_mappings():
+    """Convert CARD_TYPE_MAPPINGS to JSON-serializable format."""
+    return {
+        card_type.name: sorted(list(cards))
+        for card_type, cards in CARD_TYPE_MAPPINGS.items()
+    }
+
+
+def load_card_type_mappings():
+    """Load custom card type mappings from file, or return defaults."""
+    try:
+        if os.path.exists(CARD_TYPES_FILE):
+            with open(CARD_TYPES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except (IOError, json.JSONDecodeError) as e:
+        print(f"Error loading card type mappings: {e}")
+    return get_default_card_type_mappings()
+
+
+def save_card_type_mappings(mappings: dict):
+    """Save card type mappings to file."""
+    try:
+        with open(CARD_TYPES_FILE, "w", encoding="utf-8") as f:
+            json.dump(mappings, f, indent=2)
+        return True
+    except IOError as e:
+        print(f"Error saving card type mappings: {e}")
+        return False
+
+
+@app.get("/api/card-types")
+def get_card_type_mappings():
+    """Get all card type mappings."""
+    mappings = load_card_type_mappings()
+    # Get all unique cards from all types
+    all_cards = set()
+    for cards in mappings.values():
+        all_cards.update(cards)
+    return JSONResponse({
+        "mappings": mappings,
+        "types": [t.name for t in CRCardType],
+        "allCards": sorted(list(all_cards))
+    })
+
+
+class CardTypeMappingUpdate(BaseModel):
+    cardType: str
+    cards: List[str]
+
+
+@app.post("/api/card-types")
+def update_card_type_mapping(update: CardTypeMappingUpdate):
+    """Update cards for a specific card type."""
+    mappings = load_card_type_mappings()
+    if update.cardType not in [t.name for t in CRCardType]:
+        return JSONResponse({"success": False, "error": f"Invalid card type: {update.cardType}"}, status_code=400)
+    
+    mappings[update.cardType] = sorted(update.cards)
+    if save_card_type_mappings(mappings):
+        return JSONResponse({"success": True, "mappings": mappings})
+    return JSONResponse({"success": False, "error": "Failed to save mappings"}, status_code=500)
+
+
+class CardTypeAssignment(BaseModel):
+    cardName: str
+    types: List[str]
+
+
+@app.post("/api/card-types/assign")
+def assign_card_types(assignment: CardTypeAssignment):
+    """Assign a card to specific types (add/remove from categories)."""
+    mappings = load_card_type_mappings()
+    valid_types = [t.name for t in CRCardType]
+    
+    # Validate types
+    for t in assignment.types:
+        if t not in valid_types:
+            return JSONResponse({"success": False, "error": f"Invalid card type: {t}"}, status_code=400)
+    
+    # Remove card from all types first, then add to specified types
+    for card_type in mappings:
+        if assignment.cardName in mappings[card_type]:
+            mappings[card_type].remove(assignment.cardName)
+    
+    # Add card to specified types
+    for t in assignment.types:
+        if t not in mappings:
+            mappings[t] = []
+        if assignment.cardName not in mappings[t]:
+            mappings[t].append(assignment.cardName)
+            mappings[t] = sorted(mappings[t])
+    
+    if save_card_type_mappings(mappings):
+        return JSONResponse({"success": True, "mappings": mappings})
+    return JSONResponse({"success": False, "error": "Failed to save mappings"}, status_code=500)
+
+
+@app.delete("/api/card-types")
+def reset_card_type_mappings():
+    """Reset card type mappings to defaults."""
+    try:
+        if os.path.exists(CARD_TYPES_FILE):
+            os.remove(CARD_TYPES_FILE)
+        return JSONResponse({"success": True, "mappings": get_default_card_type_mappings()})
     except OSError as e:
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
